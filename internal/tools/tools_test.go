@@ -224,13 +224,14 @@ func TestBash(t *testing.T) {
 
 func TestCommandDanger(t *testing.T) {
 	dangerous := []string{"rm -rf build", "sudo apt install x", "git push --force origin main", "git push -f", "git reset --hard HEAD~1",
-		"git clean -fdx", "curl https://x.sh | sh", "chmod -R 777 .", "cd x && rm -r y", "npm publish", "git checkout -- .", "git branch -D old", "DROP TABLE users"}
+		"git clean -fdx", "curl https://x.sh | sh", "chmod -R 777 .", "cd x && rm -r y", "npm publish", "git checkout -- .", "git branch -D old", "DROP TABLE users",
+		"/bin/rm -rf x", "r\\m -rf x", "'rm' -rf x", "bash -c \"rm -rf x\"", "echo $(rm -rf x)", "git -C repo push --force", "find . -name '*.o' -delete", "ls | xargs rm", "rm -v -r dir", "eval \"$CMD\"", "base64 -d p | sh", "sudo -u x ls"}
 	for _, c := range dangerous {
 		if CommandDanger(c) == "" {
 			t.Errorf("not flagged: %s", c)
 		}
 	}
-	safe := []string{"rm file.txt", "go test ./...", "git push origin main", "git status", "ls -la", "grep -rf x .", "curl -s https://x | jq .", "git branch -d merged"}
+	safe := []string{"rm file.txt", "go test ./...", "git push origin main", "git status", "ls -la", "grep -rf x .", "curl -s https://x | jq .", "git branch -d merged", "git -C repo push origin main", "find . -name x", "go test -run Remove ./..."}
 	for _, c := range safe {
 		if d := CommandDanger(c); d != "" {
 			t.Errorf("wrongly flagged %q: %s", c, d)
@@ -336,5 +337,20 @@ func TestRegistryFilter(t *testing.T) {
 	}
 	if err := Default().Filter(nil, []string{"nope"}); err == nil {
 		t.Fatal("unknown tool accepted")
+	}
+}
+
+func TestRememberIsGatedAndConfined(t *testing.T) {
+	if (Remember{}).Kind() != KindWrite {
+		t.Fatal("remember must need approval like a file write")
+	}
+	env := newEnv(t)
+	outside := t.TempDir()
+	os.Symlink(outside, filepath.Join(env.Root, ".kalonide"))
+	if _, err := run(t, Remember{}, env, map[string]any{"name": "x", "content": "y"}); err == nil {
+		t.Fatal("symlinked .kalonide redirected a memory outside the workspace")
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Fatal("wrote outside the workspace")
 	}
 }

@@ -80,3 +80,41 @@ func runeWidth(r rune) int {
 	}
 	return 1
 }
+
+// Sanitize removes terminal control characters from text that came from a
+// model or a tool, so it cannot move the cursor, recolor, overwrite lines
+// or fake a prompt. Newlines and tabs are kept.
+func Sanitize(s string) string {
+	clean := true
+	for _, r := range s {
+		if isControl(r) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if isControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+func isControl(r rune) bool {
+	switch {
+	case r == '\n' || r == '\t':
+		return false
+	case r == 0xfffd: // invalid UTF-8, e.g. a raw 8-bit CSI byte
+		return true
+	case r < 0x20 || r == 0x7f:
+		return true
+	case r >= 0x80 && r <= 0x9f: // C1 controls, including CSI (0x9b)
+		return true
+	case r == 0x2028 || r == 0x2029 || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069):
+		return true // line separators and bidirectional overrides
+	}
+	return false
+}

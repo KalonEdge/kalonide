@@ -247,11 +247,11 @@ func compactNum(n int) string {
 func (sh *shell) ask(ctx context.Context, question string, options []string) (string, error) {
 	sh.render.End()
 	defer sh.term.Quiet()
-	fmt.Println(ui.Accent("? ") + ui.Bold(question))
+	fmt.Println(ui.Accent("? ") + ui.Bold(ui.Sanitize(question)))
 	if len(options) > 0 {
 		items := make([]ui.PickItem, 0, len(options)+1)
 		for _, o := range options {
-			items = append(items, ui.PickItem{Label: o})
+			items = append(items, ui.PickItem{Label: ui.Sanitize(o)})
 		}
 		items = append(items, ui.PickItem{Label: "Type my own answer…"})
 		i, err := ui.Pick(sh.term, "Choose an answer", items, -1)
@@ -574,7 +574,7 @@ func (sh *shell) cmdResume(arg string) (string, bool) {
 			if s.ID == rt.sess.ID {
 				continue
 			}
-			items = append(items, ui.PickItem{Label: s.Title, Detail: fmt.Sprintf("%s · %d turns · %s", ago(s.Updated), s.Turns, s.ID)})
+			items = append(items, ui.PickItem{Label: ui.Sanitize(s.Title), Detail: fmt.Sprintf("%s · %d turns · %s", ago(s.Updated), s.Turns, s.ID)})
 		}
 		if len(items) == 0 {
 			fmt.Println(ui.Dim("No other sessions for this folder.") + "\n")
@@ -696,7 +696,7 @@ func (sh *shell) cmdMemory(string) (string, bool) {
 	}
 	for _, m := range mems {
 		body := strings.Join(strings.Fields(m.Body), " ")
-		fmt.Printf("  %s %s  %s\n", ui.Dim("["+m.Scope+"]"), ui.Bold(m.Name), ui.Dim(clipText(body, 80)))
+		fmt.Printf("  %s %s  %s\n", ui.Dim("["+m.Scope+"]"), ui.Bold(m.Name), ui.Dim(ui.Sanitize(clipText(body, 80))))
 	}
 	fmt.Println()
 	return "", false

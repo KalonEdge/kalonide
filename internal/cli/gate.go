@@ -97,9 +97,14 @@ func (g *gate) ask(t tools.Tool, summary, danger string, offerAlways bool) (bool
 	if g.render != nil {
 		g.render.End()
 	}
-	q := fmt.Sprintf("  %s %s?", ui.Yellow("Allow"), ui.Bold(t.Name()))
+	// Show exactly what will run, sanitized so it cannot disguise itself.
+	shown := ui.Sanitize(summary)
+	if r := []rune(shown); len(r) > 400 {
+		shown = string(r[:400]) + "…"
+	}
+	q := fmt.Sprintf("  %s %s: %s\n ", ui.Yellow("Allow"), ui.Bold(t.Name()), shown)
 	if danger != "" {
-		q = fmt.Sprintf("  %s %s %s?", ui.Red("Destructive ("+danger+"):"), ui.Bold("run it"), ui.Dim("— this cannot be auto-approved"))
+		q = fmt.Sprintf("  %s %s\n  %s\n ", ui.Red("Destructive ("+danger+"), cannot be auto-approved:"), ui.Bold(shown), ui.Bold("Run it?"))
 	}
 	choices := []ui.Choice{{Key: 'y', Label: "yes"}}
 	if offerAlways {

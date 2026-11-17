@@ -131,7 +131,10 @@ func (AskUser) Run(ctx context.Context, env *Env, args json.RawMessage) (string,
 type Remember struct{}
 
 func (Remember) Name() string { return "remember" }
-func (Remember) Kind() Kind   { return KindMemory }
+
+// Kind is KindWrite: a memory steers every later session, so in ask mode
+// the user approves each one.
+func (Remember) Kind() Kind { return KindWrite }
 func (Remember) Description() string {
 	return "Save a lasting fact for future sessions: a project convention, a user preference, a hard-won gotcha. Not for temporary task state. Reusing a name updates that memory."
 }
@@ -190,11 +193,20 @@ func (Remember) Run(_ context.Context, env *Env, args json.RawMessage) (string, 
 	if dir == "" {
 		return "", errors.New("memory is not available here")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
 	body := fmt.Sprintf("---\nname: %s\nupdated: %s\n---\n\n%s\n", slug, time.Now().Format("2006-01-02"), content)
 	p := filepath.Join(dir, slug+".md")
+	if dir == env.ProjectMemoryDir {
+		// Project memories live in the workspace: confine them like any
+		// other write, so a symlinked .kalonide cannot redirect them.
+		resolved, err := env.Resolve(p)
+		if err != nil {
+			return "", err
+		}
+		p = resolved
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return "", err
+	}
 	if err := writeAtomic(p, []byte(body), 0o644); err != nil {
 		return "", err
 	}

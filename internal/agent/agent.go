@@ -163,6 +163,7 @@ func (a *Agent) Run(ctx context.Context, input string) (*Result, error) {
 	var ladder compactLadder
 	continuations := 0
 	nudged := false
+	promised := false
 	failures := map[string]int{}
 
 	for res.Turns < a.maxTurns() {
@@ -208,6 +209,12 @@ func (a *Agent) Run(ctx context.Context, input string) (*Result, error) {
 				nudged = true
 				a.Messages = a.Messages[:len(a.Messages)-1]
 				a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "Your last reply was empty. Please answer or continue the task."})
+				continue
+			}
+			if a.toolsOn() && !promised && announcesNextStep(content) {
+				// Small models often say "now I will run the tests" and stop.
+				promised = true
+				a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "You said what you will do next but did not do it. Do it now with the tools, then report the result."})
 				continue
 			}
 			res.Text = content

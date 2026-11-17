@@ -365,3 +365,40 @@ func (noteSink) Thinking(string)                      {}
 func (noteSink) ToolStart(string, string, string)     {}
 func (noteSink) ToolEnd(string, string, string, bool) {}
 func (n noteSink) Notice(s string)                    { *n.notes = append(*n.notes, s) }
+
+func TestAnnouncedButUntakenStepIsNudgedOnce(t *testing.T) {
+	a, s := newAgent(t,
+		text("I have edited mathx.go. Now I will run go test again to confirm the fix."),
+		call("list_directory", map[string]string{}),
+		text("Let me check one more thing:"),
+	)
+	res, err := a.Run(context.Background(), "fix it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One nudge only: the second announcement is accepted as final.
+	if res.Turns != 3 || len(s.steps) != 0 || !strings.Contains(res.Text, "Let me check") {
+		t.Fatalf("%+v", res)
+	}
+	for _, m := range a.Messages {
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, "did not do it") {
+			return
+		}
+	}
+	t.Fatal("no nudge sent")
+}
+
+func TestAnnouncesNextStep(t *testing.T) {
+	yes := []string{"Done editing.\n\nNow I will run the tests.", "Let me look at the config file:", "I'll now apply the fix", "Next, I'm going to update the docs."}
+	no := []string{"I fixed the loop and the tests pass.", "Let me know if you want more changes.", "", "The bug was in line 9. I changed it and confirmed with go test."}
+	for _, s := range yes {
+		if !announcesNextStep(s) {
+			t.Errorf("missed: %q", s)
+		}
+	}
+	for _, s := range no {
+		if announcesNextStep(s) {
+			t.Errorf("false positive: %q", s)
+		}
+	}
+}

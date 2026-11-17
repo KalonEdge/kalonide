@@ -49,9 +49,16 @@ Commands: `/model` (live picker), `/models`, `/provider`, `/mode`, `/new`,
   symlinks cannot escape it.
 - File changes, shell commands and web access ask first, unless you
   choose auto-edit or yolo.
-- Destructive commands (recursive deletes, force push, hard resets, `sudo`,
-  piping downloads into a shell…) always need a person's yes, in every mode,
-  and are refused in `exec`.
+- A guard flags destructive commands (recursive deletes, `find -delete`,
+  force push, hard resets, `sudo`, `eval`, piping into a shell…), including
+  quoted, escaped or full-path forms. Flagged commands need a person's yes
+  in every mode and are refused in `exec`. It is a safety net, not a
+  sandbox: use ask mode for untrusted work.
+- Saving a memory counts as a file change, so ask mode asks first.
+- `KALONIDE.md`, `AGENTS.md` and memories are given to the model as project
+  notes, never as instructions that outrank you.
+- Model and tool output is stripped of terminal control codes before it is
+  shown, and approval prompts show the exact command.
 - `web_fetch` refuses localhost and private networks.
 - Credentials are redacted from tool output. API keys are never written to
   disk; providers name the environment variable that holds them.

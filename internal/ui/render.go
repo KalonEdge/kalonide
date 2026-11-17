@@ -64,6 +64,7 @@ func (r *Renderer) stopSpinner() {
 }
 
 func (r *Renderer) Text(s string) {
+	s = Sanitize(s)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stopSpinner()
@@ -76,6 +77,7 @@ func (r *Renderer) Text(s string) {
 }
 
 func (r *Renderer) Thinking(s string) {
+	s = Sanitize(s)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.ShowThinking {
@@ -92,6 +94,7 @@ func (r *Renderer) Thinking(s string) {
 }
 
 func (r *Renderer) ToolStart(id, name, summary string) {
+	name, summary = Sanitize(name), Sanitize(summary)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stopSpinner()
@@ -105,6 +108,7 @@ func (r *Renderer) ToolStart(id, name, summary string) {
 }
 
 func (r *Renderer) ToolEnd(id, name, result string, failed bool) {
+	name, result = Sanitize(name), Sanitize(result)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stopSpinner()
@@ -122,6 +126,7 @@ func (r *Renderer) ToolEnd(id, name, result string, failed bool) {
 }
 
 func (r *Renderer) Notice(s string) {
+	s = Sanitize(s)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stopSpinner()
@@ -136,6 +141,7 @@ func (r *Renderer) Plan(items []tools.PlanItem) {
 	r.stopSpinner()
 	r.newline()
 	for _, it := range items {
+		it.Content = Sanitize(it.Content)
 		switch it.Status {
 		case "completed":
 			r.write("  " + Green("✔ ") + Dim(it.Content) + "\n")

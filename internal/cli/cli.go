@@ -700,13 +700,13 @@ func cmdSessions(args []string) int {
 		for _, m := range s.Messages {
 			switch m.Role {
 			case llm.RoleUser:
-				fmt.Println(ui.Accent("❯ ") + m.Content)
+				fmt.Println(ui.Accent("❯ ") + ui.Sanitize(m.Content))
 			case llm.RoleAssistant:
 				if strings.TrimSpace(m.Content) != "" {
-					fmt.Println(m.Content)
+					fmt.Println(ui.Sanitize(m.Content))
 				}
 				for _, c := range m.ToolCalls {
-					fmt.Println(ui.Dim("● " + c.Function.Name + " " + clipText(c.Function.Arguments, 100)))
+					fmt.Println(ui.Dim(ui.Sanitize("● " + c.Function.Name + " " + clipText(c.Function.Arguments, 100))))
 				}
 			}
 			fmt.Println()

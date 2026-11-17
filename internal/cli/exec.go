@@ -238,6 +238,7 @@ type textSink struct {
 }
 
 func (s *textSink) Text(t string) {
+	t = ui.Sanitize(t)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.inText = true
@@ -254,15 +255,17 @@ func (s *textSink) ToolStart(_, name, summary string) {
 		fmt.Println()
 		s.inText = false
 	}
-	fmt.Fprintf(os.Stderr, "%s %s %s\n", ui.Accent("●"), name, ui.Dim(summary))
+	fmt.Fprintf(os.Stderr, "%s %s %s\n", ui.Accent("●"), ui.Sanitize(name), ui.Dim(ui.Sanitize(summary)))
 }
 func (s *textSink) ToolEnd(_, name, result string, failed bool) {
 	if s.quiet || !failed {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "  %s\n", ui.Red("⎿ "+firstLine(result)))
+	fmt.Fprintf(os.Stderr, "  %s\n", ui.Red("⎿ "+ui.Sanitize(firstLine(result))))
 }
-func (s *textSink) Notice(n string) { fmt.Fprintf(os.Stderr, "%s %s\n", ui.Yellow("!"), n) }
+func (s *textSink) Notice(n string) {
+	fmt.Fprintf(os.Stderr, "%s %s\n", ui.Yellow("!"), ui.Sanitize(n))
+}
 func (s *textSink) finish(r execResult) {
 	if s.inText {
 		fmt.Println()

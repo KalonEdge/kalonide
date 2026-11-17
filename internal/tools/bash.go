@@ -49,29 +49,65 @@ func (Bash) Summary(args json.RawMessage) string {
 
 // dangerRules flag commands that destroy data, rewrite history, escalate
 // privileges or run remote code. Such commands always need approval.
+// cmdWord matches the start of a command word: start of text or after a
+// separator, optionally with a path such as /bin/ or ./ before the name.
+const cmdWord = `(?:^|[;&|(\s{])(?:[\w.~-]*/)*`
+
+// dangerRules flag commands that destroy data, rewrite history, escalate
+// privileges or run code built at run time. This is a safety net that
+// catches common forms, not a sandbox: a determined command can evade any
+// pattern list, which is why ask mode exists.
 var dangerRules = []struct {
 	re     *regexp.Regexp
 	reason string
 }{
-	{regexp.MustCompile(`(^|[;&|(\s])rm\s+(-[a-zA-Z]*[rRfF][a-zA-Z]*\s+|--recursive\s+|--force\s+)`), "recursive or forced delete"},
-	{regexp.MustCompile(`(^|[;&|(\s])sudo\s`), "runs as root"},
-	{regexp.MustCompile(`(^|[;&|(\s])(su|doas)\s`), "switches user"},
-	{regexp.MustCompile(`git\s+push\b.*(\s--force\b|\s-f\b|\s--force-with-lease\b|\s\+\S)`), "force push"},
-	{regexp.MustCompile(`git\s+reset\s+--hard`), "discards local changes"},
-	{regexp.MustCompile(`git\s+clean\s+-[a-zA-Z]*[fdx]`), "deletes untracked files"},
-	{regexp.MustCompile(`git\s+(checkout|restore)\s+(--\s+)?\.(\s|$)`), "discards local changes"},
-	{regexp.MustCompile(`git\s+branch\s+-D\b`), "force-deletes a branch"},
-	{regexp.MustCompile(`git\s+stash\s+(drop|clear)`), "deletes stashed work"},
-	{regexp.MustCompile(`(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b`), "pipes a download into a shell"},
-	{regexp.MustCompile(`\b(mkfs|fdisk|diskutil\s+erase|dd\s+if=)`), "writes to disks"},
-	{regexp.MustCompile(`>\s*/dev/(sd|disk|nvme)`), "writes to a disk device"},
-	{regexp.MustCompile(`\bchmod\s+(-[Rr]\s+)?[0-7]*777\b`), "makes files world-writable"},
-	{regexp.MustCompile(`\bchown\s+-R\b`), "recursive ownership change"},
+	{regexp.MustCompile(cmdWord + `rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rRfF][a-zA-Z]*|--recursive|--force)\b`), "recursive or forced delete"},
+	{regexp.MustCompile(cmdWord + `(?:find)\s.*\s-delete\b`), "deletes the files find matches"},
+	{regexp.MustCompile(cmdWord + `xargs\s+(?:\S+\s+)*?(?:[\w./-]*/)?rm\b`), "bulk delete"},
+	{regexp.MustCompile(cmdWord + `(?:shred|wipefs|srm)\b`), "destroys file contents"},
+	{regexp.MustCompile(cmdWord + `(?:sudo|doas)\s`), "runs as root"},
+	{regexp.MustCompile(cmdWord + `su(?:\s|$)`), "switches user"},
+	{regexp.MustCompile(cmdWord + `eval\s`), "runs code built at run time"},
+	{regexp.MustCompile(`\|\s*(?:sudo\s+)?(?:[\w./-]*/)?(?:ba|z|da|k|fi)?sh\b`), "pipes text into a shell"},
+	{regexp.MustCompile(cmdWord + `git(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+push\b.*(?:\s--force\b|\s-f\b|\s--force-with-lease\b|\s--mirror\b|\s--delete\b|\s\+\S|\s:\S)`), "force push or remote delete"},
+	{regexp.MustCompile(cmdWord + `git(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+reset\s+.*--hard`), "discards local changes"},
+	{regexp.MustCompile(cmdWord + `git(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+clean\s+(?:\S+\s+)*?-[a-zA-Z]*[fdx]`), "deletes untracked files"},
+	{regexp.MustCompile(cmdWord + `git(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+(?:checkout|restore)\s+(?:\S+\s+)*?(?:--\s+)?\.(?:\s|$)`), "discards local changes"},
+	{regexp.MustCompile(cmdWord + `git(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+branch\s+(?:\S+\s+)*?-D\b`), "force-deletes a branch"},
+	{regexp.MustCompile(cmdWord + `git(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+stash\s+(?:drop|clear)`), "deletes stashed work"},
+	{regexp.MustCompile(cmdWord + `(?:mkfs\S*|fdisk|diskutil\s+(?:erase\S*|partition\S*)|dd\s+.*\bof=)`), "writes to disks"},
+	{regexp.MustCompile(`>\s*/dev/(?:sd|disk|nvme|rdisk)`), "writes to a disk device"},
+	{regexp.MustCompile(cmdWord + `chmod\s+(?:-[Rr]\s+)?[0-7]*777\b`), "makes files world-writable"},
+	{regexp.MustCompile(cmdWord + `chown\s+-R\b`), "recursive ownership change"},
 	{regexp.MustCompile(`:\(\)\s*\{\s*:\|:&\s*\};:`), "fork bomb"},
-	{regexp.MustCompile(`\b(shutdown|reboot|halt|poweroff)\b`), "shuts the machine down"},
-	{regexp.MustCompile(`\bkill(all)?\s+-9\s+(-1|1)\b`), "kills every process"},
-	{regexp.MustCompile(`\b(npm|pnpm|yarn)\s+publish\b|\bcargo\s+publish\b|\bgh\s+release\s+create\b`), "publishes a package or release"},
-	{regexp.MustCompile(`(?i)\bdrop\s+(table|database)\b`), "drops database objects"},
+	{regexp.MustCompile(cmdWord + `(?:shutdown|reboot|halt|poweroff)\b`), "shuts the machine down"},
+	{regexp.MustCompile(cmdWord + `kill(?:all)?\s+-9\s+(?:-1|1)\b`), "kills every process"},
+	{regexp.MustCompile(cmdWord + `(?:(?:npm|pnpm|yarn|cargo|twine|gem)\s+publish|gh\s+release\s+create|gh\s+repo\s+delete)\b`), "publishes or deletes a package, release or repo"},
+	{regexp.MustCompile(`(?i)\bdrop\s+(?:table|database|schema)\b`), "drops database objects"},
+}
+
+// unshell removes quoting and escaping and turns substitutions and groups
+// into separators, so `'r'm -rf`, `r\m -rf`, `bash -c "rm -rf x"` and
+// `$(rm -rf x)` are all seen as `rm -rf`.
+func unshell(cmd string) string {
+	r := strings.NewReplacer(
+		"\\\n", " ", "\\", "", "'", "", `"`, "",
+		"$(", " ; ", "`", " ; ", "${", " ; ", "<(", " ; ", ">(", " ; ",
+		"\n", " ; ", "&&", " ; ", "||", " ; ",
+	)
+	return r.Replace(cmd)
+}
+
+// CommandDanger reports why a shell command is destructive, or "".
+func CommandDanger(cmd string) string {
+	for _, form := range []string{cmd, unshell(cmd)} {
+		for _, r := range dangerRules {
+			if r.re.MatchString(form) {
+				return r.reason
+			}
+		}
+	}
+	return ""
 }
 
 // Danger reports why a command needs explicit approval, or "".
@@ -79,16 +115,6 @@ func (Bash) Danger(args json.RawMessage) string {
 	var a bashArgs
 	_ = json.Unmarshal(args, &a)
 	return CommandDanger(a.Command)
-}
-
-// CommandDanger reports why a shell command is destructive, or "".
-func CommandDanger(cmd string) string {
-	for _, r := range dangerRules {
-		if r.re.MatchString(cmd) {
-			return r.reason
-		}
-	}
-	return ""
 }
 
 func shellPath() string {
