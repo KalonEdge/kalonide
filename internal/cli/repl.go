@@ -159,7 +159,15 @@ func (sh *shell) banner() {
 		ws = "~" + ws[len(home):]
 	}
 	fmt.Println()
-	fmt.Printf("  %s %s\n", ui.Bright("kalonide"), ui.Dim(version.Version))
+	if mark := ui.Wordmark("kalonide", ui.Width()); mark != nil {
+		for _, line := range mark {
+			fmt.Println("  " + line)
+		}
+		fmt.Println()
+		fmt.Printf("  %s %s\n", ui.Dim("coding agent for Kalon ·"), ui.Dim(version.Version))
+	} else {
+		fmt.Printf("  %s %s\n", ui.Bright("kalonide"), ui.Dim(version.Version))
+	}
 	fmt.Printf("  %s %s %s\n", ui.Bold(model), ui.Dim("on"), ui.Accent(rt.provider.Name))
 	fmt.Printf("  %s\n", ui.Dim(ws))
 	fmt.Printf("  %s\n\n", ui.Dim("/help for commands · Shift+Tab changes mode · Ctrl-C stops a reply"))
