@@ -80,7 +80,7 @@ var dangerRules = []struct {
 	{regexp.MustCompile(cmdWord + `chmod\s+(?:-[Rr]\s+)?[0-7]*777\b`), "makes files world-writable"},
 	{regexp.MustCompile(cmdWord + `chown\s+-R\b`), "recursive ownership change"},
 	{regexp.MustCompile(`:\(\)\s*\{\s*:\|:&\s*\};:`), "fork bomb"},
-	{regexp.MustCompile(cmdWord + `(?:shutdown|reboot|halt|poweroff)(?:\s|$)`), "shuts the machine down"},
+	{regexp.MustCompile(cmdWord + `(?:shutdown|reboot|halt|poweroff)(?:[^\w-]|$)`), "shuts the machine down"},
 	{regexp.MustCompile(cmdWord + `kill(?:all)?\s+-9\s+(?:-1|1)\b`), "kills every process"},
 	{regexp.MustCompile(cmdWord + `(?:(?:npm|pnpm|yarn|cargo|twine|gem)\s+publish|gh\s+release\s+create|gh\s+repo\s+delete)\b`), "publishes or deletes a package, release or repo"},
 	{regexp.MustCompile(`(?i)\bdrop\s+(?:table|database|schema)\b`), "drops database objects"},

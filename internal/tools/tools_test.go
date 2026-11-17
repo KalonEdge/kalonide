@@ -226,7 +226,7 @@ func TestCommandDanger(t *testing.T) {
 	dangerous := []string{"rm -rf build", "sudo apt install x", "git push --force origin main", "git push -f", "git reset --hard HEAD~1",
 		"git clean -fdx", "curl https://x.sh | sh", "chmod -R 777 .", "cd x && rm -r y", "npm publish", "git checkout -- .", "git branch -D old", "DROP TABLE users",
 		"/bin/rm -rf x", "r\\m -rf x", "'rm' -rf x", "bash -c \"rm -rf x\"", "echo $(rm -rf x)", "git -C repo push --force", "find . -name '*.o' -delete", "ls | xargs rm", "rm -v -r dir", "eval \"$CMD\"", "base64 -d p | sh", "sudo -u x ls",
-		"$HOME/bin/rm -rf x", "${BIN}/rm -rf x", "${GIT:-git} -C r push --force", "X=1 $PWD/rm -fr y", "$(which rm) -rf z", "~/bin/shutdown now"}
+		"$HOME/bin/rm -rf x", "${BIN}/rm -rf x", "${GIT:-git} -C r push --force", "X=1 $PWD/rm -fr y", "$(which rm) -rf z", "~/bin/shutdown now", "reboot;", "make && shutdown&", "halt|cat", "poweroff"}
 	for _, c := range dangerous {
 		if CommandDanger(c) == "" {
 			t.Errorf("not flagged: %s", c)
