@@ -1,0 +1,6 @@
+/kalonide
+*.test
+*.out
+.DS_Store
+.kalonide/
+.claude/scheduled_tasks.lock
