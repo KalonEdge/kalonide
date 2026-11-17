@@ -159,18 +159,16 @@ func (sh *shell) banner() {
 		ws = "~" + ws[len(home):]
 	}
 	fmt.Println()
-	if mark := ui.Wordmark("kalonide", ui.Width()); mark != nil {
-		for _, line := range mark {
+	if hero := ui.Hero(ui.Width()); hero != nil {
+		for _, line := range hero {
 			fmt.Println("  " + line)
 		}
 		fmt.Println()
-		fmt.Printf("  %s %s\n", ui.Dim("coding agent for Kalon ·"), ui.Dim(version.Version))
-	} else {
-		fmt.Printf("  %s %s\n", ui.Bright("kalonide"), ui.Dim(version.Version))
 	}
-	fmt.Printf("  %s %s %s\n", ui.Bold(model), ui.Dim("on"), ui.Accent(rt.provider.Name))
-	fmt.Printf("  %s\n", ui.Dim(ws))
-	fmt.Printf("  %s\n\n", ui.Dim("/help for commands · Shift+Tab changes mode · Ctrl-C stops a reply"))
+	fmt.Printf("  %s %s\n\n", ui.Bold("Your code, your models, your machine."), ui.Dim(version.Version))
+	fmt.Printf("  %s  %s  %s %s %s\n\n", ui.Dim(ws), ui.Dim("·"), ui.Bold(model), ui.Dim("on"), ui.Accent(rt.provider.Name))
+	fmt.Printf("  %s %s %s %s %s %s\n", ui.Dim("Try"), ui.Accent("\"explain this project\""), ui.Dim("·"), ui.Accent("\"find and fix the failing test\""), ui.Dim("·"), ui.Accent("/model"))
+	fmt.Printf("  %s\n\n", ui.Dim("/help commands · Shift+Tab mode · Ctrl-C stops a reply · \\ then Enter for a new line"))
 }
 
 func (sh *shell) prompt() string {

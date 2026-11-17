@@ -1,106 +1,125 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
-// glyphs are Kalonide's own 5-row block letters. '#' is a filled cell.
-var glyphs = map[rune][5]string{
-	'K': {"#   #", "#  # ", "###  ", "#  # ", "#   #"},
-	'A': {" ### ", "#   #", "#####", "#   #", "#   #"},
-	'L': {"#    ", "#    ", "#    ", "#    ", "#####"},
-	'O': {" ### ", "#   #", "#   #", "#   #", " ### "},
-	'N': {"#   #", "##  #", "# # #", "#  ##", "#   #"},
-	'I': {"###", " # ", " # ", " # ", "###"},
-	'D': {"#### ", "#   #", "#   #", "#   #", "#### "},
-	'E': {"#####", "#    ", "#### ", "#    ", "#####"},
+// shadowGlyphs are the letters of KALONIDE in the "ANSI Shadow" style:
+// solid blocks with a box-drawing shadow, six rows tall.
+var shadowGlyphs = map[rune][6]string{
+	'K': {"██╗  ██╗", "██║ ██╔╝", "█████╔╝ ", "██╔═██╗ ", "██║  ██╗", "╚═╝  ╚═╝"},
+	'A': {" █████╗ ", "██╔══██╗", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"},
+	'L': {"██╗     ", "██║     ", "██║     ", "██║     ", "███████╗", "╚══════╝"},
+	'O': {" ██████╗ ", "██╔═══██╗", "██║   ██║", "██║   ██║", "╚██████╔╝", " ╚═════╝ "},
+	'N': {"███╗   ██╗", "████╗  ██║", "██╔██╗ ██║", "██║╚██╗██║", "██║ ╚████║", "╚═╝  ╚═══╝"},
+	'I': {"██╗", "██║", "██║", "██║", "██║", "╚═╝"},
+	'D': {"██████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "██████╔╝", "╚═════╝ "},
+	'E': {"███████╗", "██╔════╝", "█████╗  ", "██╔══╝  ", "███████╗", "╚══════╝"},
 }
 
-// Wordmark renders text in block letters that fit within cols columns.
-// It uses double-width cells when there is room, single-width when not,
-// and returns nil when even that does not fit (the caller then shows a
-// one-line name instead). Lines are colored with a teal gradient.
-func Wordmark(text string, cols int) []string {
-	pixels := wordmarkPixels(text)
-	if pixels == nil {
-		return nil
-	}
-	width := len([]rune(pixels[0]))
-	cell := 0
+// kalonLogo is the Kalon mark (a K in a ring of linked dots) drawn in
+// braille, generated from logos/kalon.svg at 24×24 dots, with the K redrawn bolder
+// so it stays readable at this size. It is six rows
+// tall to sit beside the wordmark.
+var kalonLogo = [6]string{
+	"⠀⢀⡀⠀⣃⠸⠟⡄⢴⠄⠀⠀",
+	"⢀⠘⠋⠶⠩⠄⠋⣶⡔⢛⠠⠄",
+	"⢈⠘⣓⠓⣿⣧⣾⠋⠓⣙⢡⣤",
+	"⠛⢃⣍⢤⣿⡏⢻⣧⣤⢬⡄⡁",
+	"⠐⠂⣥⠘⠿⣠⠐⣂⠶⣠⡄⠁",
+	"⠀⠀⠐⠗⠘⣴⡆⢩⠀⠈⠁⠀",
+}
+
+// The K sits in columns 4-7 of rows 2-3; it is drawn bright, the dots teal.
+func logoIsK(row, col int) bool { return (row == 2 || row == 3) && col >= 4 && col <= 7 }
+
+const logoWidth = 12
+
+// Hero renders the startup mark for a terminal cols wide: the Kalon logo
+// beside the KALONIDE wordmark when there is room, the wordmark alone when
+// a little narrower, and the logo with the name in plain text on small
+// terminals. The wordmark is drawn in the terminal's own bold text color
+// (readable on dark and light themes) with the final E in Kalon teal.
+func Hero(cols int) []string {
+	mark := wordmarkLines("KALONIDE")
+	markW := utf8.RuneCountInString(strings.Replace(mark[0], "\x00", "", 1))
+	const indent, gap = 2, 3
 	switch {
-	case width*2+4 <= cols:
-		cell = 2
-	case width+4 <= cols:
-		cell = 1
-	default:
-		return nil
+	case indent+logoWidth+gap+markW <= cols:
+		out := make([]string, 6)
+		for i := range out {
+			out[i] = logoLine(i) + strings.Repeat(" ", gap) + colorMark(mark[i])
+		}
+		return out
+	case indent+markW <= cols:
+		out := make([]string, 6)
+		for i := range out {
+			out[i] = colorMark(mark[i])
+		}
+		return out
+	case indent+logoWidth+gap+8 <= cols:
+		out := make([]string, 6)
+		for i := range out {
+			out[i] = logoLine(i)
+		}
+		out[2] += strings.Repeat(" ", gap) + Bold("kalonide")
+		return out
 	}
-	out := make([]string, len(pixels))
-	for row, line := range pixels {
+	return nil
+}
+
+// wordmarkLines lays the letters side by side without colour. The last
+// letter is separated by a NUL so colorMark can tint it.
+func wordmarkLines(text string) []string {
+	letters := []rune(strings.ToUpper(text))
+	out := make([]string, 6)
+	for row := range out {
 		var b strings.Builder
-		for col, p := range []rune(line) {
-			if p != '#' {
-				b.WriteString(strings.Repeat(" ", cell))
-				continue
+		for i, r := range letters {
+			if i == len(letters)-1 {
+				b.WriteByte(0)
 			}
-			block := strings.Repeat("█", cell)
-			if colorOn {
-				b.WriteString(gradient(col, width, row) + block + "\x1b[0m")
-			} else {
-				b.WriteString(block)
-			}
+			b.WriteString(shadowGlyphs[r][row])
 		}
-		out[row] = strings.TrimRight(b.String(), " ")
+		out[row] = b.String()
 	}
 	return out
 }
 
-// wordmarkPixels lays out the letters with one empty column between them.
-func wordmarkPixels(text string) []string {
-	var rows [5]strings.Builder
-	for i, r := range strings.ToUpper(text) {
-		g, ok := glyphs[r]
-		if !ok {
-			return nil
-		}
-		for row := range rows {
-			if i > 0 {
-				rows[row].WriteByte(' ')
-			}
-			rows[row].WriteString(g[row])
-		}
+func colorMark(line string) string {
+	head, tail, _ := strings.Cut(line, "\x00")
+	if !colorOn {
+		return strings.TrimRight(head+tail, " ")
 	}
-	out := make([]string, 5)
-	for i := range rows {
-		out[i] = rows[i].String()
-	}
-	return out
+	return "\x1b[1m" + head + "\x1b[0m" + paint(accentCode+";1", strings.TrimRight(tail, " "))
 }
 
-// gradient runs from light teal (#22D3EE) through Kalon teal (#0891B2) to
-// deep teal (#0E7490) across the word, slightly darker on lower rows.
-func gradient(col, width, row int) string {
-	stops := [][3]float64{{0x22, 0xD3, 0xEE}, {0x08, 0x91, 0xB2}, {0x0E, 0x74, 0x90}}
-	t := float64(col) / float64(max(width-1, 1))
-	seg := 0
-	if t > 0.5 {
-		seg, t = 1, (t-0.5)*2
-	} else {
-		t *= 2
+func logoLine(row int) string {
+	if !colorOn {
+		return kalonLogo[row]
 	}
-	a, b := stops[seg], stops[seg+1]
-	shade := 1 - 0.06*float64(row)
-	c := func(i int) int { return int((a[i] + (b[i]-a[i])*t) * shade) }
-	if trueColor {
-		return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", c(0), c(1), c(2))
+	// Colour runs, not single characters, to keep the output small.
+	var b, run strings.Builder
+	runK := false
+	flush := func() {
+		if run.Len() == 0 {
+			return
+		}
+		if runK {
+			b.WriteString(Bold(run.String()))
+		} else {
+			b.WriteString(Accent(run.String()))
+		}
+		run.Reset()
 	}
-	// 256-color fallback: light, mid and deep teal.
-	switch {
-	case col < width/3:
-		return "\x1b[38;5;45m"
-	case col < 2*width/3:
-		return "\x1b[38;5;38m"
+	for col, r := range []rune(kalonLogo[row]) {
+		if k := logoIsK(row, col); k != runK {
+			flush()
+			runK = k
+		}
+		run.WriteRune(r)
 	}
-	return "\x1b[38;5;31m"
+	flush()
+	return b.String()
 }

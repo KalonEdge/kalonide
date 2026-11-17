@@ -1,5 +1,7 @@
 # Kalonide
 
+![Kalonide starting up](docs/startup-screen.png)
+
 A coding agent for your terminal. It works with **Kalon** out of the box,
 and with any OpenAI-compatible model server: Ollama, LM Studio, OpenRouter,
 OpenAI, or your own.
