@@ -1,14 +1,14 @@
 // Package sandbox confines shell commands the agent runs: writes only to
 // the workspace, temp folders and build caches, and no network beyond
-// this machine unless allowed. It uses macOS's sandbox-exec, or bwrap
-// (bubblewrap) on Linux when installed. The Linux path is experimental:
-// it is built to the same rules but has not been verified on Linux.
+// this machine unless allowed. It uses macOS's sandbox-exec; other systems
+// have no sandbox yet, and say so.
 package sandbox
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -23,15 +23,12 @@ type Policy struct {
 const macTool = "/usr/bin/sandbox-exec"
 
 // Available reports whether this machine can sandbox commands, and how.
+// Only macOS is supported: a Linux sandbox (bubblewrap) is planned but
+// will ship only once it is verified on Linux.
 func Available() (bool, string) {
-	switch runtime.GOOS {
-	case "darwin":
+	if runtime.GOOS == "darwin" {
 		if _, err := os.Stat(macTool); err == nil {
 			return true, "sandbox-exec"
-		}
-	case "linux":
-		if p, err := exec.LookPath("bwrap"); err == nil {
-			return true, p
 		}
 	}
 	return false, ""
@@ -40,14 +37,10 @@ func Available() (bool, string) {
 // Wrap returns argv that runs argv inside the sandbox, or argv unchanged
 // when no sandbox is available.
 func Wrap(argv []string, p Policy) []string {
-	ok, tool := Available()
-	if !ok {
+	if ok, _ := Available(); !ok {
 		return argv
 	}
-	if runtime.GOOS == "darwin" {
-		return append([]string{macTool, "-p", macProfile(p)}, argv...)
-	}
-	return append(bwrapArgs(tool, p), argv...)
+	return append([]string{macTool, "-p", macProfile(p)}, argv...)
 }
 
 // writableDirs is the policy's folders plus the places builds and package
@@ -124,6 +117,11 @@ func macProfile(p Policy) string {
 		for _, d := range subs {
 			b.WriteString(" (subpath " + sbString(d) + ")")
 		}
+		// macOS disks usually ignore case, so .GIT/hooks is .git/hooks:
+		// match the protected names in any case as well.
+		for _, re := range gitRegexes(p.Writable) {
+			b.WriteString(` (regex #"` + re + `")`)
+		}
 		b.WriteString(")\n")
 	}
 	// No escaping through other apps: Apple Events (Terminal, System
@@ -148,41 +146,6 @@ func macProfile(p Policy) string {
 	}
 	b.WriteString(")\n")
 	return b.String()
-}
-
-func bwrapArgs(tool string, p Policy) []string {
-	args := []string{tool, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
-		"--die-with-parent", "--new-session", "--unshare-ipc",
-		// Hide service sockets (Docker, D-Bus) that would hand out more power.
-		"--tmpfs", "/run", "--tmpfs", "/var/run"}
-	for _, d := range writableDirs(p) {
-		if d == "/dev" {
-			continue
-		}
-		if _, err := os.Stat(d); err == nil {
-			args = append(args, "--bind", d, d)
-		}
-	}
-	// Git: make each existing .git directory a mount point (a mount point
-	// cannot be renamed away), then bind its code-running parts read-only.
-	// Missing hooks/info folders are created first so they can be locked.
-	lits, subs := gitProtected(p.Writable)
-	for _, g := range lits {
-		if info, err := os.Lstat(g); err == nil && info.IsDir() {
-			args = append(args, "--bind", g, g)
-			_ = os.MkdirAll(filepath.Join(g, "hooks"), 0o755)
-			_ = os.MkdirAll(filepath.Join(g, "info"), 0o755)
-		}
-	}
-	for _, d := range subs {
-		if _, err := os.Stat(d); err == nil {
-			args = append(args, "--ro-bind", d, d)
-		}
-	}
-	if !p.Network {
-		args = append(args, "--unshare-net")
-	}
-	return args
 }
 
 // Env removes variables that point sandboxed commands at more powerful
@@ -251,4 +214,39 @@ func gitProtected(roots []string) (literals, subpaths []string) {
 		}
 	}
 	return literals, subpaths
+}
+
+// anyCase turns "git" into "[Gg][Ii][Tt]".
+func anyCase(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		lo, up := strings.ToLower(string(r)), strings.ToUpper(string(r))
+		if lo != up {
+			b.WriteString("[" + up + lo + "]")
+		} else {
+			b.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	return b.String()
+}
+
+// gitRegexes matches, for each root, .git and its code-running parts in
+// any letter case.
+func gitRegexes(roots []string) []string {
+	var parts []string
+	for _, rel := range []string{"hooks", "config", "info", "modules", "worktrees", "commondir"} {
+		parts = append(parts, anyCase(rel))
+	}
+	var out []string
+	for _, root := range roots {
+		if real, err := filepath.EvalSymlinks(root); err == nil {
+			root = real
+		}
+		if strings.ContainsAny(root, "\"\\") {
+			continue // not expressible safely; the exact-path rules still apply
+		}
+		prefix := "^" + regexp.QuoteMeta(root) + "/" + anyCase(".git")
+		out = append(out, prefix+"$", prefix+"/("+strings.Join(parts, "|")+")(/|$)")
+	}
+	return out
 }

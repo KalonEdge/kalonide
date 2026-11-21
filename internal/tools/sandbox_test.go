@@ -141,3 +141,24 @@ func TestSandboxCannotCreateGitRepo(t *testing.T) {
 		t.Fatalf("a .git folder was created from the sandbox: %s", out)
 	}
 }
+
+func TestSandboxGitProtectionIgnoresCase(t *testing.T) {
+	if ok, _ := sandbox.Available(); !ok || runtime.GOOS != "darwin" {
+		t.Skip("needs macOS sandbox-exec")
+	}
+	env := newEnv(t)
+	RunCommand(context.Background(), env.Root, "git init -q .", time.Minute, nil)
+	policy := &sandbox.Policy{Writable: []string{env.Root}}
+	out, _ := RunCommand(context.Background(), env.Root, "echo pwned > .GIT/hooks/pre-commit; echo x >> .Git/config; mkdir -p .gIT/HOOKS; echo done", time.Minute, policy)
+	if _, err := os.Stat(filepath.Join(env.Root, ".git", "hooks", "pre-commit")); err == nil {
+		t.Fatalf("hook planted through a differently-cased path: %s", out)
+	}
+	if strings.Count(out, "Operation not permitted") < 2 {
+		t.Fatalf("expected the writes to be refused: %s", out)
+	}
+	// Ordinary files with similar names are fine.
+	out, _ = RunCommand(context.Background(), env.Root, "echo ok > .gitignore && echo ok > notes.git && echo fine", time.Minute, policy)
+	if !strings.Contains(out, "fine") {
+		t.Fatalf("ordinary files refused: %s", out)
+	}
+}

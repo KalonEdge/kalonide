@@ -61,14 +61,14 @@ Commands: `/model` (live picker), `/models`, `/provider`, `/mode`, `/new`,
   notes, never as instructions that outrank you.
 - Model and tool output is stripped of terminal control codes before it is
   shown, and approval prompts show the exact command.
-- In auto-edit, yolo and `exec`, the agent's shell commands run in a
-  sandbox (macOS `sandbox-exec`, or bubblewrap on Linux): writes only in
+- On macOS, in auto-edit, yolo and `exec`, the agent's shell commands run
+  in a sandbox (`sandbox-exec`): writes only in
   the workspace, temp folders and build caches; network only to this
   machine (`sandboxNetwork` to allow more); no AppleScript or `open`; no
   Docker or SSH-agent sockets; `.git` cannot be created, replaced or have
   its hooks or config changed (so `git init` is yours to run; commits
-  work). The Linux (bubblewrap) sandbox is experimental and not yet
-  verified on Linux.
+  work). Other systems have no sandbox yet; there, approvals are the
+  safeguard (`/sandbox` and `doctor` say so).
   Package caches stay writable for builds (Go and npm verify their
   contents). `/sandbox` shows the current state.
 - A folder's own `KALONIDE.md`, `AGENTS.md`, memories, skills and commands

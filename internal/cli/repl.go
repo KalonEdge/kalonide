@@ -1015,7 +1015,7 @@ func (sh *shell) cmdPS(string) (string, bool) {
 func (sh *shell) cmdSandbox(string) (string, bool) {
 	ok, tool := sandbox.Available()
 	if !ok {
-		fmt.Println(ui.Yellow("! ") + "No sandbox on this system (macOS sandbox-exec, or bubblewrap on Linux): commands run unconfined, so approvals are your safeguard.\n")
+		fmt.Println(ui.Yellow("! ") + "No sandbox on this system (only macOS is supported so far): commands run unconfined, so approvals are your safeguard.\n")
 		return "", false
 	}
 	p := sh.rt.sandboxPolicy()

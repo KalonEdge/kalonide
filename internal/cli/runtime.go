@@ -189,7 +189,7 @@ func newRuntime(o runOptions) (*runtime, error) {
 	}
 	env.Sandbox = rt.sandboxPolicy
 	if ok, _ := sandbox.Available(); !ok && s.Sandbox == "on" {
-		rt.warnings = append(rt.warnings, "sandbox is on in settings, but this system has none (macOS sandbox-exec, or bubblewrap on Linux); commands run unconfined")
+		rt.warnings = append(rt.warnings, "sandbox is on in settings, but this system has none (only macOS is supported so far); commands run unconfined")
 	}
 	if s.SelfCheck || o.selfCheck {
 		rt.setSelfCheck(true)
