@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -621,5 +622,100 @@ func TestKalonideTalksToItselfOverMCP(t *testing.T) {
 	r := kalonide(t, env, work, "mcp")
 	if r.code != 0 || !strings.Contains(r.stdout, "5 tools: read_file, list_directory, glob, grep, repo_map") {
 		t.Fatalf("self over MCP: %s %s", r.stdout, r.stderr)
+	}
+}
+
+// acpClient plays the editor: it writes requests and reads every line.
+type acpClient struct {
+	t     *testing.T
+	in    io.WriteCloser
+	lines chan map[string]any
+}
+
+func (c *acpClient) send(v any) {
+	b, _ := json.Marshal(v)
+	c.in.Write(append(b, '\n'))
+}
+
+// until reads messages until match returns true, answering permission
+// requests with answer. It returns the matching message.
+func (c *acpClient) until(match func(map[string]any) bool, answer string, seen *[]map[string]any) map[string]any {
+	timeout := time.After(20 * time.Second)
+	for {
+		select {
+		case m, ok := <-c.lines:
+			if !ok {
+				c.t.Fatal("acp closed its output")
+			}
+			*seen = append(*seen, m)
+			if m["method"] == "session/request_permission" {
+				c.send(map[string]any{"jsonrpc": "2.0", "id": m["id"], "result": map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": answer}}})
+				continue
+			}
+			if match(m) {
+				return m
+			}
+		case <-timeout:
+			c.t.Fatalf("timed out; saw %v", *seen)
+		}
+	}
+}
+
+func TestACP(t *testing.T) {
+	env, work := setup(t)
+	cmd := exec.Command(binPath, "acp")
+	cmd.Env = append(append(os.Environ(), env...), "NO_COLOR=1", "KALONIDE_RECONNECT_WAIT=0")
+	in, _ := cmd.StdinPipe()
+	out, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { in.Close(); cmd.Wait() }()
+	c := &acpClient{t: t, in: in, lines: make(chan map[string]any, 100)}
+	go func() {
+		sc := bufio.NewScanner(out)
+		sc.Buffer(make([]byte, 64<<10), 16<<20)
+		for sc.Scan() {
+			var m map[string]any
+			if json.Unmarshal(sc.Bytes(), &m) == nil {
+				c.lines <- m
+			}
+		}
+		close(c.lines)
+	}()
+	var seen []map[string]any
+	byID := func(id float64) func(map[string]any) bool {
+		return func(m map[string]any) bool { v, ok := m["id"].(float64); return ok && v == id && m["method"] == nil }
+	}
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{}}})
+	init := c.until(byID(1), "", &seen)
+	if init["result"].(map[string]any)["protocolVersion"] != 1.0 {
+		t.Fatalf("initialize: %v", init)
+	}
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": map[string]any{"cwd": work, "mcpServers": []any{}}})
+	sess := c.until(byID(2), "", &seen)["result"].(map[string]any)["sessionId"].(string)
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": map[string]any{"sessionId": sess, "prompt": []any{map[string]any{"type": "text", "text": "MAKEFILE"}}}})
+	done := c.until(byID(3), "allow_once", &seen)
+	if done["result"].(map[string]any)["stopReason"] != "end_turn" {
+		t.Fatalf("prompt: %v", done)
+	}
+	if b, _ := os.ReadFile(filepath.Join(work, "notes.txt")); string(b) != "hi\n" && string(b) != "hello\n" {
+		t.Fatalf("file not written after permission: %q", b)
+	}
+	all, _ := json.Marshal(seen)
+	for _, want := range []string{`"session/request_permission"`, `"sessionUpdate":"tool_call"`, `"kind":"edit"`, `"status":"completed"`, `"sessionUpdate":"agent_message_chunk"`, "RESULT: Created notes.txt"} {
+		if !strings.Contains(string(all), want) {
+			t.Errorf("missing %s in the stream", want)
+		}
+	}
+	// A denied call does not run.
+	os.Remove(filepath.Join(work, "notes.txt"))
+	seen = nil
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 4, "method": "session/prompt", "params": map[string]any{"sessionId": sess, "prompt": []any{map[string]any{"type": "text", "text": "MAKEFILE"}}}})
+	c.until(byID(4), "reject_once", &seen)
+	if _, err := os.Stat(filepath.Join(work, "notes.txt")); err == nil {
+		t.Fatal("denied write happened")
 	}
 }

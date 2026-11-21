@@ -117,13 +117,12 @@ func macProfile(p Policy) string {
 		for _, d := range subs {
 			b.WriteString(" (subpath " + sbString(d) + ")")
 		}
-		// macOS disks usually ignore case, so .GIT/hooks is .git/hooks:
-		// match the protected names in any case as well.
-		for _, re := range gitRegexes(p.Writable) {
-			b.WriteString(` (regex #"` + re + `")`)
-		}
 		b.WriteString(")\n")
 	}
+	// macOS disks usually ignore case (and fold two Unicode letters), so
+	// .GIT/hooks is .git/hooks: lock all of .git in any spelling, then
+	// allow back exactly what git needs to commit.
+	b.WriteString(gitRules(p.Writable))
 	// No escaping through other apps: Apple Events (Terminal, System
 	// Events), opening apps, or the tools that do those things.
 	b.WriteString("(deny appleevent-send)(deny lsopen)\n")
@@ -216,28 +215,40 @@ func gitProtected(roots []string) (literals, subpaths []string) {
 	return literals, subpaths
 }
 
-// anyCase turns "git" into "[Gg][Ii][Tt]".
+// anyCase matches s in any letter case, including the two Unicode letters
+// that macOS disks fold to ASCII: the Kelvin sign (k) and the long s (s).
+// It uses alternation, since bracket expressions in sandbox regexes work
+// on bytes, not characters.
 func anyCase(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		lo, up := strings.ToLower(string(r)), strings.ToUpper(string(r))
-		if lo != up {
-			b.WriteString("[" + up + lo + "]")
-		} else {
+		if lo == up {
 			b.WriteString(regexp.QuoteMeta(string(r)))
+			continue
 		}
+		alts := []string{up, lo}
+		switch lo {
+		case "k":
+			alts = append(alts, "\u212a")
+		case "s":
+			alts = append(alts, "\u017f")
+		}
+		b.WriteString("(" + strings.Join(alts, "|") + ")")
 	}
 	return b.String()
 }
 
-// gitRegexes matches, for each root, .git and its code-running parts in
-// any letter case.
-func gitRegexes(roots []string) []string {
-	var parts []string
-	for _, rel := range []string{"hooks", "config", "info", "modules", "worktrees", "commondir"} {
-		parts = append(parts, anyCase(rel))
-	}
-	var out []string
+// gitWritable are the parts of a .git folder git needs to commit, fetch
+// and keep history: everything else (hooks, config, info, rebase todo
+// lists that can hold commands, …) stays read-only.
+const gitWritable = `(objects|refs|logs|lfs)(/.*)?|(index|HEAD|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD|MERGE_MSG|MERGE_MODE|CHERRY_PICK_HEAD|REVERT_HEAD|COMMIT_EDITMSG|packed-refs|description|gc\.log|shallow)(\.lock)?`
+
+// gitRules returns sandbox rules that make every .git folder in roots
+// read-only in any spelling (letter case, Unicode folding), then allow the
+// exact parts git needs back.
+func gitRules(roots []string) string {
+	var deny, allow []string
 	for _, root := range roots {
 		if real, err := filepath.EvalSymlinks(root); err == nil {
 			root = real
@@ -245,8 +256,11 @@ func gitRegexes(roots []string) []string {
 		if strings.ContainsAny(root, "\"\\") {
 			continue // not expressible safely; the exact-path rules still apply
 		}
-		prefix := "^" + regexp.QuoteMeta(root) + "/" + anyCase(".git")
-		out = append(out, prefix+"$", prefix+"/("+strings.Join(parts, "|")+")(/|$)")
+		deny = append(deny, `(regex #"^`+anyCase(root)+"/"+anyCase(".git")+`(/.*)?$")`)
+		allow = append(allow, `(regex #"^`+regexp.QuoteMeta(root)+`/\.git/(`+gitWritable+`)$")`)
 	}
-	return out
+	if len(deny) == 0 {
+		return ""
+	}
+	return "(deny file-write* " + strings.Join(deny, " ") + ")\n(allow file-write* " + strings.Join(allow, " ") + ")\n"
 }

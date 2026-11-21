@@ -162,3 +162,31 @@ func TestSandboxGitProtectionIgnoresCase(t *testing.T) {
 		t.Fatalf("ordinary files refused: %s", out)
 	}
 }
+
+func TestSandboxGitProtectionIgnoresPathCaseAndUnicode(t *testing.T) {
+	if ok, _ := sandbox.Available(); !ok || runtime.GOOS != "darwin" {
+		t.Skip("needs macOS sandbox-exec")
+	}
+	env := newEnv(t)
+	RunCommand(context.Background(), env.Root, "git init -q .", time.Minute, nil)
+	policy := &sandbox.Policy{Writable: []string{env.Root}}
+	upperRoot := strings.ToUpper(env.Root)
+	if _, err := os.Stat(upperRoot); err != nil {
+		t.Skip("case-sensitive disk")
+	}
+	kelvin := ".git/hooKks"
+	out, _ := RunCommand(context.Background(), env.Root, fmt.Sprintf(
+		"echo a > %q/.git/hooks/pre-commit; echo b > %q; echo x > .git/rebase-merge-todo; echo done", upperRoot, filepath.Join(env.Root, kelvin, "post-checkout")), time.Minute, policy)
+	for _, f := range []string{"pre-commit", "post-checkout"} {
+		if _, err := os.Stat(filepath.Join(env.Root, ".git", "hooks", f)); err == nil {
+			t.Fatalf("hook %s planted via %s: %s", f, map[string]string{"pre-commit": "an upper-case root", "post-checkout": "a Kelvin sign"}[f], out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(env.Root, ".git", "rebase-merge-todo")); err == nil {
+		t.Fatal("unlisted file written under .git")
+	}
+	out, _ = RunCommand(context.Background(), env.Root, "echo hi > a.txt && git add a.txt && git -c user.email=a@b -c user.name=a commit -qm one && git branch feature && git tag v1 && echo committed", time.Minute, policy)
+	if !strings.Contains(out, "committed") {
+		t.Fatalf("normal git work broke: %s", out)
+	}
+}
