@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/KalonEdge/kalonide/internal/agent"
 	"github.com/KalonEdge/kalonide/internal/config"
+	"github.com/KalonEdge/kalonide/internal/discover"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/prompt"
 	"github.com/KalonEdge/kalonide/internal/session"
@@ -314,10 +316,68 @@ func realDir(p string) (string, error) { return tools.RealPath(p) }
 // hookRetry reports each retry to whoever is watching, so a slow or
 // restarting server never looks like a hang.
 func (rt *runtime) hookRetry() {
-	rt.client.OnRetry = func(attempt int, wait time.Duration, err error) {
-		if rt.agent == nil || rt.agent.Sink == nil {
-			return
+	notice := func(s string) {
+		if rt.agent != nil && rt.agent.Sink != nil {
+			rt.agent.Sink.Notice(s)
 		}
-		rt.agent.Sink.Notice(fmt.Sprintf("%s: %v; retrying in %s (attempt %d)", rt.provider.Name, err, wait.Round(100*time.Millisecond), attempt+1))
 	}
+	rt.client.OnRetry = func(attempt int, wait time.Duration, err error) {
+		notice(fmt.Sprintf("%s: %v; retrying in %s (attempt %d)", rt.provider.Name, err, wait.Round(100*time.Millisecond), attempt+1))
+	}
+	// A local server that stops answering is usually restarting (or moved
+	// port): wait for it instead of failing the request.
+	wait := reconnectWait()
+	if wait <= 0 {
+		rt.client.Reconnect = nil
+		return
+	}
+	rt.client.Reconnect = func(ctx context.Context) string {
+		base := rt.client.Base()
+		if !discover.IsLocal(base) {
+			return ""
+		}
+		notice(fmt.Sprintf("%s is not answering at %s; waiting up to %s for it to come back", rt.provider.Name, base, wait))
+		model := ""
+		if rt.agent != nil {
+			model = rt.agent.Model
+		}
+		found := discover.Reconnect(ctx, base, model, wait)
+		switch {
+		case found == "":
+			return ""
+		case found == base:
+			notice(rt.provider.Name + " is back; continuing")
+		default:
+			notice(fmt.Sprintf("found %s at %s; continuing there for this session", model, found))
+			rt.provider.BaseURL = found
+		}
+		return found
+	}
+}
+
+// reconnectWait is how long to wait for a local model server to return:
+// 20 seconds, or KALONIDE_RECONNECT_WAIT seconds (0 turns waiting off).
+func reconnectWait() time.Duration {
+	if v := os.Getenv("KALONIDE_RECONNECT_WAIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 20 * time.Second
+}
+
+// warmUp loads the model on a local server in the background with a
+// one-token request, so the first real reply does not wait for a cold
+// start. It is silent and best-effort.
+func (rt *runtime) warmUp() {
+	base, model := rt.client.Base(), rt.agent.Model
+	if model == "" || !discover.IsLocal(base) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	c := llm.New(base, rt.provider.APIKey, rt.provider.Headers)
+	c.MaxAttempts = 1
+	_, _ = c.Chat(ctx, llm.Request{Model: model, MaxTokens: 1,
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}}}, nil)
 }

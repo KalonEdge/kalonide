@@ -31,6 +31,7 @@ type shell struct {
 	render    *ui.Renderer
 	gate      *gate
 	undo      *checkpoint.Store
+	images    []string // attached with /image, sent with the next message
 	status    string   // slow parts of the status line, refreshed per prompt
 	models    []string // cached for completion
 	modelInfo []llm.ModelInfo
@@ -65,6 +66,7 @@ func init() {
 		{"add-dir", "<path>", "Allow writes in another folder", (*shell).cmdAddDir},
 		{"memory", "", "List saved memories", (*shell).cmdMemory},
 		{"init", "", "Write a KALONIDE.md guide for this project", (*shell).cmdInit},
+		{"image", "<file>", "Attach an image to your next message (vision models)", (*shell).cmdImage},
 		{"thinking", "", "Show or hide model thinking", (*shell).cmdThinking},
 		{"doctor", "", "Check the setup", (*shell).cmdDoctor},
 		{"config", "", "Show settings", (*shell).cmdConfig},
@@ -116,6 +118,7 @@ func runShell(o runOptions, resumeID string, resume bool) int {
 		fmt.Println(ui.Yellow("! ") + ui.Dim(notice) + "\n")
 	}
 	go sh.refreshModels()
+	go rt.warmUp()
 
 	lastInterrupt := time.Time{}
 	for {
@@ -218,7 +221,11 @@ func (sh *shell) footerLine() string {
 	default:
 		mode = ui.Green("● ask")
 	}
-	return "  " + mode + ui.Dim(sh.status+" · shift+tab mode · / commands")
+	attached := ""
+	if n := len(sh.images); n > 0 {
+		attached = ui.Accent(fmt.Sprintf(" · %d image(s) attached", n))
+	}
+	return "  " + mode + attached + ui.Dim(sh.status+" · shift+tab mode · / commands")
 }
 
 // turn sends one prompt to the agent. Ctrl-C cancels the reply.
@@ -246,7 +253,9 @@ func (sh *shell) turn(input string) {
 	sh.undo.Begin(input, len(rt.agent.Messages), rt.agent.Compactions)
 	_ = sh.term.Quiet()
 	start := time.Now()
-	res, err := rt.agent.Run(ctx, input)
+	msg := llm.Message{Content: input, Images: sh.images}
+	sh.images = nil
+	res, err := rt.agent.RunMessage(ctx, msg)
 	_ = sh.term.Restore()
 	sh.render.End()
 
@@ -863,4 +872,37 @@ func (sh *shell) afterRewind(turn *checkpoint.Turn, restored []string, err error
 		fmt.Println(ui.Dim("  The conversation is back to before: ") + clipText(strings.Join(strings.Fields(ui.Sanitize(turn.Prompt)), " "), 60))
 	}
 	fmt.Println(ui.Dim("  Changes made by shell commands are not tracked; use git for those.") + "\n")
+}
+
+func (sh *shell) cmdImage(arg string) (string, bool) {
+	switch arg {
+	case "":
+		fmt.Println(ui.Yellow("! ") + "usage: /image <file>   (or /image clear)")
+		return "", false
+	case "clear":
+		sh.images = nil
+		fmt.Println(ui.Dim("Attached images removed.") + "\n")
+		return "", false
+	}
+	path := arg
+	if strings.HasPrefix(path, "~/") {
+		home, _ := os.UserHomeDir()
+		path = filepath.Join(home, path[2:])
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(sh.rt.env.Root, path)
+	}
+	img, err := llm.LoadImage(path)
+	if err != nil {
+		fmt.Println(ui.Red("! ") + err.Error())
+		return "", false
+	}
+	sh.images = append(sh.images, img)
+	fmt.Printf("%s attached %s; it goes with your next message\n", ui.Green("✔"), filepath.Base(path))
+	for _, m := range sh.cachedInfo() {
+		if m.ID == sh.rt.agent.Model && !m.Supports("vision") {
+			fmt.Println(ui.Yellow("! ") + ui.Dim(m.ID+" is not marked as a vision model, so it may not see the image; pick one with /model"))
+		}
+	}
+	fmt.Println()
+	return "", false
 }

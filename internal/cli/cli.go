@@ -5,15 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"net/url"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/KalonEdge/kalonide/internal/config"
+	"github.com/KalonEdge/kalonide/internal/discover"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/prompt"
 	"github.com/KalonEdge/kalonide/internal/ui"
@@ -52,6 +51,7 @@ Environment:
   KALONIDE_PERMISSION_MODE      ask, auto-edit or yolo
   KALONIDE_MAX_TURNS            model calls per prompt
   KALONIDE_STREAM_IDLE_TIMEOUT  seconds of silence before a stream is retried
+  KALONIDE_RECONNECT_WAIT       seconds to wait for a local server to come back (default 20, 0 = off)
   NO_COLOR                      disable colors
 `
 
@@ -467,11 +467,6 @@ type check struct {
 	Detail string `json:"detail"`
 }
 
-// localPorts are where model servers usually listen: Kalon and Ollama
-// (11434), a second Ollama (11435), LM Studio (1234), llama.cpp and
-// friends (8080).
-var localPorts = []int{11434, 11435, 1234, 8080}
-
 func runDoctor(o doctorOptions) int {
 	var checks []check
 	add := func(c check) {
@@ -540,14 +535,13 @@ func runDoctor(o doctorOptions) int {
 	}
 
 	// Look for model servers on this machine; useful when Kalon moved port.
-	if isLocal(p.BaseURL) || !reachable {
-		found := scanLocal()
+	if discover.IsLocal(p.BaseURL) || !reachable {
 		var lines []string
-		for _, f := range found {
-			if strings.TrimSuffix(f.url, "/v1") == strings.TrimSuffix(p.BaseURL, "/v1") {
+		for _, f := range discover.Scan(context.Background()) {
+			if strings.TrimSuffix(f.URL, "/v1") == strings.TrimSuffix(p.BaseURL, "/v1") {
 				continue
 			}
-			lines = append(lines, fmt.Sprintf("%s (%d models)", f.url, f.models))
+			lines = append(lines, fmt.Sprintf("%s (%d models)", f.URL, len(f.Models)))
 		}
 		if len(lines) > 0 {
 			detail := "also found " + strings.Join(lines, ", ")
@@ -556,7 +550,7 @@ func runDoctor(o doctorOptions) int {
 			}
 			add(check{Name: "local servers", OK: true, Warn: !reachable, Detail: detail})
 		} else if !reachable {
-			add(check{Name: "local servers", OK: true, Warn: true, Detail: "no model server found on ports " + portList()})
+			add(check{Name: "local servers", OK: true, Warn: true, Detail: "no model server found on ports " + strings.Trim(fmt.Sprint(discover.Ports), "[]")})
 		}
 	}
 
@@ -576,6 +570,11 @@ func runDoctor(o doctorOptions) int {
 		}
 		add(check{Name: "project", OK: true, Warn: len(ctxFiles) == 0, Detail: detail})
 	}
+	if discover.IsLocal(p.BaseURL) {
+		add(check{Name: "privacy", OK: true, Detail: "model requests stay on this machine; web_fetch reaches the internet only when you allow it"})
+	} else if u, err := url.Parse(p.BaseURL); err == nil {
+		add(check{Name: "privacy", OK: true, Warn: true, Detail: "model requests (your prompts and the code the agent reads) go to " + u.Host})
+	}
 	return finishDoctor(o, checks)
 }
 
@@ -591,50 +590,6 @@ func finishDoctor(o doctorOptions, checks []check) int {
 		return exitOK
 	}
 	return exitError
-}
-
-func isLocal(u string) bool {
-	return strings.Contains(u, "://localhost") || strings.Contains(u, "://127.0.0.1") || strings.Contains(u, "://[::1]")
-}
-
-func portList() string {
-	var s []string
-	for _, p := range localPorts {
-		s = append(s, strconv.Itoa(p))
-	}
-	return strings.Join(s, ", ")
-}
-
-type localServer struct {
-	url    string
-	models int
-}
-
-func scanLocal() []localServer {
-	var mu sync.Mutex
-	var out []localServer
-	var wg sync.WaitGroup
-	for _, port := range localPorts {
-		wg.Add(1)
-		go func(port int) {
-			defer wg.Done()
-			url := fmt.Sprintf("http://localhost:%d/v1", port)
-			c := llm.New(url, "", nil)
-			c.HTTP = &http.Client{Timeout: 2 * time.Second}
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			models, err := c.ListModels(ctx)
-			if err != nil {
-				return
-			}
-			mu.Lock()
-			out = append(out, localServer{url: url, models: len(models)})
-			mu.Unlock()
-		}(port)
-	}
-	wg.Wait()
-	sort.Slice(out, func(i, j int) bool { return out[i].url < out[j].url })
-	return out
 }
 
 // ---- sessions ----

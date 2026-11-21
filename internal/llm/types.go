@@ -20,6 +20,72 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+	// Images are data URLs (data:image/png;base64,…) sent with the text to
+	// vision models. A message with images is encoded with the OpenAI
+	// content-parts format.
+	Images []string `json:"-"`
+}
+
+type contentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *imageURL `json:"image_url,omitempty"`
+}
+
+type imageURL struct {
+	URL string `json:"url"`
+}
+
+// plainMessage has Message's fields without its methods, to avoid
+// recursion in the JSON methods.
+type plainMessage Message
+
+// MarshalJSON writes images as content parts; other messages are encoded
+// as usual, with a plain string content.
+func (m Message) MarshalJSON() ([]byte, error) {
+	if len(m.Images) == 0 {
+		return json.Marshal(plainMessage(m))
+	}
+	parts := []contentPart{{Type: "text", Text: m.Content}}
+	for _, img := range m.Images {
+		parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageURL{URL: img}})
+	}
+	return json.Marshal(struct {
+		plainMessage
+		Content []contentPart `json:"content"`
+	}{plainMessage(m), parts})
+}
+
+// UnmarshalJSON accepts content as a string or as content parts.
+func (m *Message) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		plainMessage
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*m = Message(raw.plainMessage)
+	m.Content, m.Images = "", nil
+	if len(raw.Content) == 0 || string(raw.Content) == "null" {
+		return nil
+	}
+	if raw.Content[0] == '"' {
+		return json.Unmarshal(raw.Content, &m.Content)
+	}
+	var parts []contentPart
+	if err := json.Unmarshal(raw.Content, &parts); err != nil {
+		return err
+	}
+	for _, p := range parts {
+		switch {
+		case p.Type == "text":
+			m.Content += p.Text
+		case p.ImageURL != nil:
+			m.Images = append(m.Images, p.ImageURL.URL)
+		}
+	}
+	return nil
 }
 
 // ToolCall is a model's request to run a tool.

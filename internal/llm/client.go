@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-
+	"sync"
 	"time"
 )
 
@@ -33,6 +33,12 @@ type Client struct {
 	IdleTimeout time.Duration
 	// OnRetry, if set, is told about each retry.
 	OnRetry func(attempt int, wait time.Duration, err error)
+	// Reconnect, if set, is asked once for a new base URL when the server
+	// is unreachable after retries (for example a local server that is
+	// restarting or moved). It returns "" to give up.
+	Reconnect func(ctx context.Context) string
+
+	mu sync.RWMutex // guards BaseURL, which Reconnect may change
 
 	sleep func(context.Context, time.Duration) error // replaced in tests
 }
@@ -114,6 +120,32 @@ func (c *Client) Chat(ctx context.Context, req Request, onDelta func(Delta)) (*R
 	if err != nil {
 		return nil, err
 	}
+	resp, err := c.chatAttempts(ctx, body, onDelta)
+	if KindOf(err) == KindUnreachable && c.Reconnect != nil && ctx.Err() == nil {
+		if base := c.Reconnect(ctx); base != "" {
+			c.SetBaseURL(base)
+			return c.chatAttempts(ctx, body, onDelta)
+		}
+	}
+	return resp, err
+}
+
+// Base returns the current base URL.
+func (c *Client) Base() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BaseURL
+}
+
+// SetBaseURL points the client at another server.
+func (c *Client) SetBaseURL(u string) {
+	c.mu.Lock()
+	c.BaseURL = strings.TrimRight(u, "/")
+	c.mu.Unlock()
+}
+
+// chatAttempts sends one request with retries and backoff.
+func (c *Client) chatAttempts(ctx context.Context, body []byte, onDelta func(Delta)) (*Response, error) {
 	var lastErr error
 	limit := c.maxAttempts()
 	for attempt := 1; attempt <= limit; attempt++ {
@@ -193,7 +225,7 @@ func (c *Client) chatOnce(ctx context.Context, body []byte, emit func(Delta)) (*
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	req, err := c.newRequest(ctx, http.MethodPost, c.BaseURL+"/chat/completions", body)
+	req, err := c.newRequest(ctx, http.MethodPost, c.Base()+"/chat/completions", body)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -208,7 +240,7 @@ func (c *Client) chatOnce(ctx context.Context, body []byte, emit func(Delta)) (*
 		if errors.Is(context.Cause(ctx), errStalled) {
 			return nil, 0, &Error{Kind: KindStalled, Msg: fmt.Sprintf("no response for %s", idle)}
 		}
-		return nil, 0, &Error{Kind: classifyTransport(err), Msg: transportMessage(err, c.BaseURL), Err: err}
+		return nil, 0, &Error{Kind: classifyTransport(err), Msg: transportMessage(err, c.Base()), Err: err}
 	}
 	defer httpResp.Body.Close()
 
@@ -566,7 +598,7 @@ func (c *Client) getJSON(ctx context.Context, url string, v any) error {
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return &Error{Kind: classifyTransport(err), Msg: transportMessage(err, c.BaseURL), Err: err}
+		return &Error{Kind: classifyTransport(err), Msg: transportMessage(err, c.Base()), Err: err}
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
@@ -588,7 +620,7 @@ func (c *Client) listOpenAI(ctx context.Context) ([]ModelInfo, error) {
 			Capabilities []string `json:"capabilities"`
 		} `json:"data"`
 	}
-	if err := c.getJSON(ctx, c.BaseURL+"/models", &v); err != nil {
+	if err := c.getJSON(ctx, c.Base()+"/models", &v); err != nil {
 		return nil, err
 	}
 	out := make([]ModelInfo, 0, len(v.Data))
@@ -617,7 +649,7 @@ func (c *Client) listOpenAI(ctx context.Context) ([]ModelInfo, error) {
 }
 
 func (c *Client) listOllama(ctx context.Context) ([]ModelInfo, error) {
-	root := strings.TrimSuffix(c.BaseURL, "/v1")
+	root := strings.TrimSuffix(c.Base(), "/v1")
 	var v struct {
 		Models []struct {
 			Name    string `json:"name"`

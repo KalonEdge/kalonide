@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,11 +33,29 @@ func fakeModel(t *testing.T) *httptest.Server {
 		var req struct {
 			Model    string `json:"model"`
 			Messages []struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
+				Role    string          `json:"role"`
+				RawBody json.RawMessage `json:"content"`
+				Content string          `json:"-"`
+				Images  int             `json:"-"`
 			} `json:"messages"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		for i := range req.Messages {
+			m := &req.Messages[i]
+			if json.Unmarshal(m.RawBody, &m.Content) != nil {
+				var parts []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}
+				json.Unmarshal(m.RawBody, &parts)
+				for _, p := range parts {
+					if p.Type == "image_url" {
+						m.Images++
+					}
+					m.Content += p.Text
+				}
+			}
+		}
 		last := req.Messages[len(req.Messages)-1]
 		users := 0
 		loop := false
@@ -67,7 +87,7 @@ func fakeModel(t *testing.T) *httptest.Server {
 		case strings.Contains(last.Content, "MAKEFILE"):
 			toolCall("write_file", `{"path":"notes.txt","content":"hello\n"}`)
 		default:
-			textReply(fmt.Sprintf("echo: %s | users=%d | model=%s", last.Content, users, req.Model))
+			textReply(fmt.Sprintf("echo: %s | users=%d | model=%s | images=%d", last.Content, users, req.Model, last.Images))
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
@@ -101,7 +121,7 @@ func kalonide(t *testing.T, env []string, dir string, args ...string) result {
 	cmd := exec.Command(binPath, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
-	cmd.Env = append(cmd.Env, "NO_COLOR=1")
+	cmd.Env = append(cmd.Env, "NO_COLOR=1", "KALONIDE_RECONNECT_WAIT=0")
 	cmd.Stdin = strings.NewReader("")
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -304,5 +324,21 @@ func TestExecDoesNotWaitOnIdleStdin(t *testing.T) {
 	b, _ := cmd.Output()
 	if !strings.Contains(string(b), "piped text") {
 		t.Fatalf("piped input lost: %q", b)
+	}
+}
+
+func TestExecSendsImages(t *testing.T) {
+	env, work := setup(t)
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	f, _ := os.Create(filepath.Join(work, "pic.png"))
+	png.Encode(f, img)
+	f.Close()
+	r := kalonide(t, env, work, "exec", "--image", "pic.png", "describe it")
+	if r.code != 0 || !strings.Contains(r.stdout, "echo: describe it") || !strings.Contains(r.stdout, "images=1") {
+		t.Fatalf("code %d\n%s\n%s", r.code, r.stdout, r.stderr)
+	}
+	os.WriteFile(filepath.Join(work, "fake.png"), []byte("not an image"), 0o644)
+	if r := kalonide(t, env, work, "exec", "--image", "fake.png", "x"); r.code != 2 || !strings.Contains(r.stderr, "not a PNG") {
+		t.Fatalf("bad image accepted: %d %s", r.code, r.stderr)
 	}
 }

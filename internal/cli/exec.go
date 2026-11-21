@@ -57,6 +57,7 @@ func cmdExec(args []string) int {
 		title      string
 		listTools  bool
 		quiet      bool
+		images     []string
 	)
 	f := newFlags("exec")
 	o.register(f)
@@ -69,6 +70,7 @@ func cmdExec(args []string) int {
 	f.String(&fork, "<id>", "Start from a copy of a session", "fork")
 	f.String(&title, "<text>", "Title for the new session", "title")
 	f.Bool(&listTools, "List the tools the model would get, then exit", "list-tools")
+	f.List(&images, "<file>", "Attach an image (repeatable; vision models)", "image")
 	f.Bool(&quiet, "Text output: hide tool activity on stderr", "q", "quiet")
 	help := false
 	f.Bool(&help, "Show this help", "h", "help")
@@ -150,8 +152,16 @@ func cmdExec(args []string) int {
 	rt.env.Ask = nil
 	rt.env.OnPlan = nil
 
+	msg := llm.Message{Content: text}
+	for _, p := range images {
+		img, err := llm.LoadImage(p)
+		if err != nil {
+			return usageFail(err)
+		}
+		msg.Images = append(msg.Images, img)
+	}
 	start := time.Now()
-	res, runErr := rt.agent.Run(ctx, text)
+	res, runErr := rt.agent.RunMessage(ctx, msg)
 	saveErr := rt.saveSession()
 
 	code := exitOK

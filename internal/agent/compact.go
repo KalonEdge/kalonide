@@ -22,7 +22,7 @@ type compactLadder struct {
 func EstimateTokens(msgs []llm.Message) int {
 	chars := 0
 	for _, m := range msgs {
-		chars += len(m.Content) + 16
+		chars += len(m.Content) + 16 + 3500*len(m.Images) // roughly 1000 tokens per image
 		for _, c := range m.ToolCalls {
 			chars += len(c.Function.Name) + len(c.Function.Arguments) + 16
 		}
@@ -182,6 +182,9 @@ func renderTranscript(msgs []llm.Message, budget int) string {
 			fmt.Fprintf(&b, "TOOL RESULT (%s): %s", m.Name, c)
 		default:
 			fmt.Fprintf(&b, "%s: %s", strings.ToUpper(m.Role), m.Content)
+			if len(m.Images) > 0 {
+				fmt.Fprintf(&b, " [%d image(s) attached]", len(m.Images))
+			}
 			for _, c := range m.ToolCalls {
 				args := c.Function.Arguments
 				if len(args) > 600 {

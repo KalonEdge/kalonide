@@ -164,7 +164,14 @@ func (a *Agent) request() llm.Request {
 // Run adds the user's message and works until the model gives a final
 // answer, the turn limit is hit, or ctx is cancelled.
 func (a *Agent) Run(ctx context.Context, input string) (*Result, error) {
-	a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: input})
+	return a.RunMessage(ctx, llm.Message{Role: llm.RoleUser, Content: input})
+}
+
+// RunMessage is Run for a prepared user message, for example one with
+// images attached.
+func (a *Agent) RunMessage(ctx context.Context, msg llm.Message) (*Result, error) {
+	msg.Role = llm.RoleUser
+	a.Messages = append(a.Messages, msg)
 	a.tried = map[string]bool{a.Model: true}
 	res := &Result{}
 	var ladder compactLadder

@@ -339,3 +339,49 @@ func TestLeakedMarkersAreStrippedAndLostCallsFlagged(t *testing.T) {
 		}
 	}
 }
+
+func TestReconnectMovesToTheNewServer(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL
+	dead.Close()
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sse(w, `{"choices":[{"delta":{"content":"from live"}}]}`)
+	}))
+	defer live.Close()
+	c := noSleep(New(deadURL, "", nil))
+	asked := 0
+	c.Reconnect = func(context.Context) string { asked++; return live.URL }
+	resp, err := c.Chat(context.Background(), Request{}, nil)
+	if err != nil || resp.Content != "from live" || asked != 1 || c.Base() != live.URL {
+		t.Fatalf("resp %+v err %v asked %d base %s", resp, err, asked, c.Base())
+	}
+	// Giving up keeps the original error.
+	c2 := noSleep(New(deadURL, "", nil))
+	c2.Reconnect = func(context.Context) string { return "" }
+	if _, err := c2.Chat(context.Background(), Request{}, nil); KindOf(err) != KindUnreachable {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestMessageImagesRoundTrip(t *testing.T) {
+	m := Message{Role: RoleUser, Content: "what is this?", Images: []string{"data:image/png;base64,AAAA"}}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"type":"image_url"`) || !strings.Contains(string(b), `"text":"what is this?"`) {
+		t.Fatalf("wire format: %s", b)
+	}
+	var back Message
+	if err := json.Unmarshal(b, &back); err != nil || back.Content != m.Content || len(back.Images) != 1 || back.Role != RoleUser {
+		t.Fatalf("%+v %v", back, err)
+	}
+	plain, _ := json.Marshal(Message{Role: RoleAssistant, Content: "hi", ToolCallID: "x"})
+	if string(plain) != `{"role":"assistant","content":"hi","tool_call_id":"x"}` {
+		t.Fatalf("plain: %s", plain)
+	}
+	var old Message
+	if json.Unmarshal([]byte(`{"role":"user","content":"saved before images existed"}`), &old) != nil || old.Content == "" {
+		t.Fatal("old sessions must still load")
+	}
+}
