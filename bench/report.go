@@ -13,9 +13,12 @@ import (
 type benchRun struct {
 	Started  time.Time     `json:"started"`
 	Finished time.Time     `json:"finished"`
+	Complete bool          `json:"complete"` // false while running or if cut short
+	Planned  int           `json:"planned"`  // runs the benchmark set out to do
 	Timeout  time.Duration `json:"timeout_ns"`
 	MaxTurns int           `json:"max_turns"`
 	Results  []Result      `json:"results"`
+	Path     string        `json:"-"`
 }
 
 func printResult(r Result) {
@@ -105,20 +108,33 @@ func dur(sec float64) string {
 	return (time.Duration(sec) * time.Second).Round(time.Second).String()
 }
 
-func (run *benchRun) save(dir string) (string, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+// save writes the run to its results file, replacing it atomically.
+func (run *benchRun) save() error {
+	if err := os.MkdirAll(filepath.Dir(run.Path), 0o755); err != nil {
+		return err
 	}
-	label := "run"
-	if gs := groups(run.Results); len(gs) == 1 {
-		label = gs[0].Agent + "-" + strings.ReplaceAll(gs[0].Model, ":", "_")
-	}
-	path := filepath.Join(dir, run.Started.Format("2006-01-02-1504")+"-"+label+".json")
 	data, err := json.MarshalIndent(run, "", "  ")
 	if err != nil {
-		return "", err
+		return err
 	}
-	return path, os.WriteFile(path, append(data, '\n'), 0o644)
+	tmp := run.Path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, run.Path)
+}
+
+func loadRun(path string) (*benchRun, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var run benchRun
+	if err := json.Unmarshal(data, &run); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	run.Path = path
+	return &run, nil
 }
 
 // writeReport renders a run as markdown: a summary per agent and model,
@@ -129,6 +145,9 @@ func writeReport(path string, run *benchRun) error {
 	b.WriteString("# Benchmark\n\n")
 	fmt.Fprintf(&b, "Run %s · %d tasks · up to %d model calls and %s per task.\n",
 		run.Started.Format("2 January 2006 15:04"), len(taskOrder(run.Results)), run.MaxTurns, run.Timeout)
+	if !run.Complete {
+		fmt.Fprintf(&b, "\n**Unfinished run:** %d of %d planned runs completed.\n\n", len(run.Results), run.Planned)
+	}
 	b.WriteString("Reproduce with `make bench`. Tasks live in `bench/testdata/tasks`; each one is checked by a script, with the tests restored first so an agent cannot pass by editing them.\n\n")
 
 	b.WriteString("## Summary\n\n| Agent | Model | Solved | Total time | Median | Tool calls | Tokens | Timeouts | Errors |\n|---|---|---|---|---|---|---|---|---|\n")

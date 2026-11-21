@@ -41,11 +41,24 @@ func main() {
 		repeat   = flag.Int("repeat", 1, "runs per task, to smooth out model randomness")
 		validate = flag.Bool("validate", false, "check the tasks themselves instead of running an agent")
 		report   = flag.Bool("report", false, "also write docs/BENCH.md from this run")
+		render   = flag.String("render", "", "write docs/BENCH.md from a saved results file, then exit")
 		taskDir  = flag.String("dir", "bench/testdata/tasks", "task folder")
 		outDir   = flag.String("out", "bench/results", "where result files go")
 	)
 	flag.Var(&agents, "agent", "label=path of a kalonide binary to run (repeatable; default kalonide=./kalonide)")
 	flag.Parse()
+
+	if *render != "" {
+		run, err := loadRun(*render)
+		if err != nil {
+			fail(err)
+		}
+		if err := writeReport("docs/BENCH.md", run); err != nil {
+			fail(err)
+		}
+		fmt.Println("report: docs/BENCH.md")
+		return
+	}
 
 	tasks, err := loadTasks(*taskDir, splitComma(*only))
 	if err != nil {
@@ -74,7 +87,13 @@ func main() {
 		modelList = []string{""}
 	}
 
-	run := &benchRun{Started: time.Now(), Timeout: *timeout, MaxTurns: *turns}
+	run := &benchRun{
+		Started: time.Now(), Timeout: *timeout, MaxTurns: *turns,
+		Planned: len(specs) * len(modelList) * *repeat * len(tasks),
+	}
+	run.Path = filepath.Join(*outDir, run.Started.Format("2006-01-02-1504")+"-"+runLabel(specs, modelList)+".json")
+	// Results are saved after every task, so a run that is cut short (the
+	// session ends, the machine sleeps) keeps everything done so far.
 	for _, ag := range specs {
 		for _, model := range modelList {
 			for i := 0; i < *repeat; i++ {
@@ -82,23 +101,25 @@ func main() {
 					r := runTask(ag, model, t, *timeout, *turns)
 					printResult(r)
 					if serverGone(r) {
-						// Every later run would fail the same way and the scores
-						// would mean nothing: stop without saving anything.
-						fail(fmt.Errorf("the model server stopped answering during %s; nothing was saved. Start it again and re-run", t.ID))
+						// Later runs would all fail the same way: stop, keeping
+						// what was done, marked unfinished.
+						fail(fmt.Errorf("the model server stopped answering during %s; kept %d finished runs in %s, marked unfinished", t.ID, len(run.Results), run.Path))
 					}
 					run.Results = append(run.Results, r)
+					if err := run.save(); err != nil {
+						fail(err)
+					}
 				}
 			}
 		}
 	}
 	run.Finished = time.Now()
-	printSummary(run)
-
-	path, err := run.save(*outDir)
-	if err != nil {
+	run.Complete = true
+	if err := run.save(); err != nil {
 		fail(err)
 	}
-	fmt.Println("results:", path)
+	printSummary(run)
+	fmt.Println("results:", run.Path)
 	if *report {
 		if err := writeReport("docs/BENCH.md", run); err != nil {
 			fail(err)
@@ -125,6 +146,15 @@ func parseAgent(v string) (agentSpec, error) {
 		return agentSpec{}, fmt.Errorf("agent %s: no binary at %s (run make build)", label, abs)
 	}
 	return agentSpec{Label: label, Bin: abs}, nil
+}
+
+// runLabel names a results file after the agent and model when there is
+// only one of each.
+func runLabel(specs []agentSpec, models []string) string {
+	if len(specs) == 1 && len(models) == 1 && models[0] != "" {
+		return specs[0].Label + "-" + strings.ReplaceAll(models[0], ":", "_")
+	}
+	return "run"
 }
 
 func splitComma(s string) []string {
