@@ -1,0 +1,1 @@
+{"id": "go-add-flag", "kind": "feature", "prompt": "Add an --upper flag to this program. When it is set, print the output in upper case. Without the flag the program must behave exactly as before."}

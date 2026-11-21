@@ -1,0 +1,1 @@
+{"id": "go-rename", "kind": "refactor", "prompt": "Rename the function calcTotal to Total everywhere in this project, so other packages can use it. Keep everything building."}

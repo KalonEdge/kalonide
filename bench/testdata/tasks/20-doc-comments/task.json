@@ -1,0 +1,1 @@
+{"id": "doc-comments", "kind": "docs", "prompt": "Add a Go doc comment to every exported function in calc.go. Do not change any code."}

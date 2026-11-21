@@ -1,0 +1,1 @@
+{"id": "count-files", "kind": "shell", "prompt": "Count the Go source files (names ending in .go) in this project, including subfolders and test files. Write only the number into a new file named count.txt."}

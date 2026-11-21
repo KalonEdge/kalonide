@@ -1,0 +1,1 @@
+{"id": "go-write-test", "kind": "test", "prompt": "Write unit tests for Reverse in strutil.go. Cover ASCII text, the empty string and Unicode text with multi-byte characters. The tests must pass."}

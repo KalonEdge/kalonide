@@ -1,0 +1,1 @@
+{"id": "explain-port", "kind": "answer", "prompt": "Which TCP port does this server listen on by default, and which environment variable changes it? Answer in one sentence."}

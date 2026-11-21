@@ -1,0 +1,1 @@
+{"id": "go-json-tags", "kind": "fix", "prompt": "The JSON this package produces does not match SPEC.md. Fix it so the output matches the spec."}

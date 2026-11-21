@@ -1,0 +1,1 @@
+{"id": "go-off-by-one", "kind": "fix", "prompt": "The tests fail. Find the bug and fix it so `go test ./...` passes."}

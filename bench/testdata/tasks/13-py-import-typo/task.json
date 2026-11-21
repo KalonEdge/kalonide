@@ -1,0 +1,1 @@
+{"id": "py-import-typo", "kind": "fix", "prompt": "Running `python3 report.py` crashes. Fix it."}

@@ -1,0 +1,1 @@
+{"id": "go-build-error", "kind": "fix", "prompt": "The project does not build. Fix the build error so `go build ./...` and `go test ./...` pass."}

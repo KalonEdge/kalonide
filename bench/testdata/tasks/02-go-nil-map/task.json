@@ -1,0 +1,1 @@
+{"id": "go-nil-map", "kind": "fix", "prompt": "Using the word counter panics. Fix it so the tests pass."}

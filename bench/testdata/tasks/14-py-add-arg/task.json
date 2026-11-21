@@ -1,0 +1,1 @@
+{"id": "py-add-arg", "kind": "feature", "prompt": "Add a --count option to greet.py: print the greeting that many times, one per line. The default is 1, so running without --count behaves as before."}

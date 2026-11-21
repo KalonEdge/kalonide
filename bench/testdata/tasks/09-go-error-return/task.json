@@ -1,0 +1,1 @@
+{"id": "go-error-return", "kind": "refactor", "prompt": "ParsePort ignores bad input. Change it to `func ParsePort(s string) (int, error)` that returns an error when s is not a whole number or is outside 1-65535. Update every caller so the project still builds."}

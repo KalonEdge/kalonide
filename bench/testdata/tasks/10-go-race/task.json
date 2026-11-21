@@ -1,0 +1,1 @@
+{"id": "go-race", "kind": "fix", "prompt": "`go test -race ./...` reports a data race. Fix the race without removing the concurrency."}

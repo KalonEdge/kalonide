@@ -96,6 +96,7 @@ overrides: `KALONIDE_PROVIDER`, `KALONIDE_BASE_URL`, `KALONIDE_MODEL`,
 make test     # unit + end-to-end tests (the e2e suite builds the binary)
 make race     # with the race detector
 make vet      # vet + gofmt check
+make bench   # the scoreboard: 20 real tasks on Kalon (BENCH_MODEL=gemma4:4b)
 ```
 
 Layout: `cmd/kalonide` (entry) · `internal/llm` (model client) ·

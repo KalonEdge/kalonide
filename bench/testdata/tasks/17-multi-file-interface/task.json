@@ -1,0 +1,1 @@
+{"id": "multi-file-interface", "kind": "feature", "prompt": "Add a `Perimeter() float64` method to the Shape interface and implement it for every shape in the package."}
