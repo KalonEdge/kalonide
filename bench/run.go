@@ -62,7 +62,7 @@ func runTask(ag agentSpec, model string, t Task, timeout time.Duration, maxTurns
 	defer cancel()
 	cmd := exec.CommandContext(ctx, ag.Bin, args...)
 	cmd.Dir = w.repo
-	cmd.Env = append(os.Environ(), "KALONIDE_HOME="+w.home, "NO_COLOR=1", "TMPDIR="+w.tmp)
+	cmd.Env = append(w.env(), "KALONIDE_HOME="+w.home, "NO_COLOR=1")
 	cmd.Stdin = nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }

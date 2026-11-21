@@ -127,7 +127,7 @@ func (w *workspace) check(t Task) (bool, string) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/bash", filepath.Join(t.Dir, "check.sh"))
 	cmd.Dir = w.repo
-	cmd.Env = append(os.Environ(), "TASK_DIR="+t.Dir, "ANSWER_FILE="+w.answer, "TMPDIR="+w.tmp, "GOFLAGS=-count=1")
+	cmd.Env = append(w.env(), "TASK_DIR="+t.Dir, "ANSWER_FILE="+w.answer, "GOFLAGS=-count=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	out, err := cmd.CombinedOutput()
@@ -211,4 +211,41 @@ func firstLine(s string) string {
 
 func indent(s string) string {
 	return "    " + strings.ReplaceAll(strings.TrimSpace(s), "\n", "\n    ")
+}
+
+// env is the environment for the agent and the check: an explicit
+// allowlist, never the caller's full environment, so API keys and tokens
+// in the shell that started the benchmark cannot reach the agent. HOME is
+// the throwaway workspace home; Go keeps the shared build and module
+// caches so runs stay fast, and may not download anything.
+func (w *workspace) env() []string {
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + w.home,
+		"TMPDIR=" + w.tmp,
+		"LANG=en_US.UTF-8",
+		"TERM=dumb",
+		"GOPROXY=off",
+		"GOTOOLCHAIN=local",
+		"GOTELEMETRY=off",
+	}
+	for _, k := range []string{"GOCACHE", "GOMODCACHE", "GOROOT"} {
+		if v := goEnv(k); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env
+}
+
+var goEnvCache = map[string]string{}
+
+// goEnv reads a Go setting once, from the real environment.
+func goEnv(key string) string {
+	if v, ok := goEnvCache[key]; ok {
+		return v
+	}
+	out, _ := exec.Command("go", "env", key).Output()
+	v := strings.TrimSpace(string(out))
+	goEnvCache[key] = v
+	return v
 }
