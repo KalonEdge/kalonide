@@ -41,6 +41,7 @@ Commands:
   repo-map    Outline the codebase: files and their top-level declarations
   trust       Let a folder's own notes, memories, skills and commands guide the agent
   changes     Show git changes; changes commit [-m msg | --auto] commits them
+  serve       serve --mcp: offer Kalonide's tools to other apps over MCP
   search      Search past sessions
   usage       Sessions, requests and tokens per day and model
   sessions    List, show or delete saved sessions
@@ -90,6 +91,8 @@ func Main(args []string) int {
 			return cmdRepoMap(args[1:])
 		case "changes":
 			return cmdChanges(args[1:])
+		case "serve":
+			return cmdServe(args[1:])
 		case "search", "find":
 			return cmdSearch(args[1:])
 		case "usage":

@@ -558,3 +558,68 @@ func TestChangesSearchUsage(t *testing.T) {
 		t.Fatalf("usage: %s %s", r.stdout, r.stderr)
 	}
 }
+
+func TestServeMCP(t *testing.T) {
+	work := t.TempDir()
+	os.WriteFile(filepath.Join(work, "hello.go"), []byte("package hello\n\nfunc Greet() string { return \"hi\" }\n"), 0o644)
+	runServer := func(extra ...string) map[int]map[string]any {
+		cmd := exec.Command(binPath, append([]string{"serve", "--mcp", "-C", work}, extra...)...)
+		cmd.Stdin = strings.NewReader(strings.Join([]string{
+			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`,
+			`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
+			`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"grep","arguments":{"pattern":"Greet"}}}`,
+			`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"bash","arguments":{"command":"echo hi"}}}`,
+			`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"../../etc/passwd"}}}`,
+		}, "\n") + "\n")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("serve: %v", err)
+		}
+		replies := map[int]map[string]any{}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			var m map[string]any
+			if json.Unmarshal([]byte(line), &m) == nil {
+				if id, ok := m["id"].(float64); ok {
+					replies[int(id)] = m
+				}
+			}
+		}
+		return replies
+	}
+	r := runServer()
+	if info := r[1]["result"].(map[string]any)["serverInfo"].(map[string]any); info["name"] != "kalonide" {
+		t.Fatalf("initialize: %v", r[1])
+	}
+	list, _ := json.Marshal(r[2])
+	if !strings.Contains(string(list), `"grep"`) || strings.Contains(string(list), `"bash"`) {
+		t.Fatalf("read-only server offered %s", list)
+	}
+	got, _ := json.Marshal(r[3])
+	if !strings.Contains(string(got), "hello.go:3") {
+		t.Fatalf("grep call: %s", got)
+	}
+	bash, _ := json.Marshal(r[4])
+	if !strings.Contains(string(bash), "no tool named bash") {
+		t.Fatalf("bash ran on a read-only server: %s", bash)
+	}
+	esc, _ := json.Marshal(r[5])
+	if !strings.Contains(string(esc), "outside the workspace") {
+		t.Fatalf("path escape: %s", esc)
+	}
+	r = runServer("--allow-unsafe-tools")
+	if b, _ := json.Marshal(r[4]); !strings.Contains(string(b), "hi") {
+		t.Fatalf("bash with --allow-unsafe-tools: %s", b)
+	}
+}
+
+func TestKalonideTalksToItselfOverMCP(t *testing.T) {
+	env, work := setup(t)
+	if r := kalonide(t, env, work, "mcp", "add", "self", "--", binPath, "serve", "--mcp", "-C", work); r.code != 0 {
+		t.Fatal(r.stderr)
+	}
+	r := kalonide(t, env, work, "mcp")
+	if r.code != 0 || !strings.Contains(r.stdout, "5 tools: read_file, list_directory, glob, grep, repo_map") {
+		t.Fatalf("self over MCP: %s %s", r.stdout, r.stderr)
+	}
+}
