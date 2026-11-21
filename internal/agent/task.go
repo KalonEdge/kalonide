@@ -44,7 +44,7 @@ func (*TaskTool) Summary(args json.RawMessage) string {
 }
 
 const helperPrompt = `You are a helper working for another coding agent, in the user's project folder.
-Do the job you are given using your read-only tools (read_file, list_directory, glob, grep), then reply with a concise, complete answer: what you found, with file paths and line numbers. Search before reading many files. You cannot edit files or run commands, and the other agent sees only your final reply.
+Do the job you are given using your read-only tools (repo_map, read_file, list_directory, glob, grep), then reply with a concise, complete answer: what you found, with file paths and line numbers. Search before reading many files. You cannot edit files or run commands, and the other agent sees only your final reply.
 
 Workspace: %s
 Date: %s
@@ -69,7 +69,7 @@ func (t *TaskTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage
 	helper := &Agent{
 		Client:        p.Client,
 		Model:         p.Model,
-		Tools:         tools.NewRegistry(tools.ReadFile{}, tools.ListDirectory{}, tools.Glob{}, tools.Grep{}),
+		Tools:         tools.NewRegistry(tools.ReadFile{}, tools.ListDirectory{}, tools.Glob{}, tools.Grep{}, tools.RepoMap{}),
 		Env:           &tools.Env{Root: env.Root, ExtraRoots: env.ExtraRoots},
 		Gate:          AllowAll{},
 		Hooks:         p.Hooks, // the user's hooks apply to the helper's calls too

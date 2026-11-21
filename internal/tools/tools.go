@@ -189,7 +189,7 @@ func (r *Registry) Specs() []llm.Tool {
 // Default returns the standard tool set.
 func Default() *Registry {
 	return NewRegistry(
-		ReadFile{}, ListDirectory{}, Glob{}, Grep{},
+		ReadFile{}, ListDirectory{}, Glob{}, Grep{}, RepoMap{},
 		WriteFile{}, EditFile{}, ApplyPatch{},
 		Bash{}, BashOutput{}, BashStop{}, Verify{},
 		WebFetch{},

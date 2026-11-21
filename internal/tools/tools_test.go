@@ -524,3 +524,29 @@ func TestBackgroundCommands(t *testing.T) {
 		t.Fatal(env.Procs.List())
 	}
 }
+
+func TestRepoMap(t *testing.T) {
+	env := newEnv(t)
+	write(t, env, "main.go", "package main\n\ntype Server struct{}\n\nfunc (s *Server) Start() {}\n\nfunc main() {\n\tfunc() {}()\n}\n")
+	write(t, env, "web/app.ts", "export class App {}\nexport const routes = []\n  function nested() {}\nasync function load() {}\n")
+	write(t, env, "tools/run.py", "class Runner:\n    def inner(self): pass\n\ndef main():\n    pass\n")
+	write(t, env, "lib/x.rs", "pub struct Store;\nimpl Display for Store {}\nfn helper() {}\n")
+	write(t, env, "testdata/fixture.go", "package f\nfunc Fixture() {}\n")
+	write(t, env, "README.md", "# hi\n")
+	out, err := run(t, RepoMap{}, env, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"main.go: Server, Start, main", "web/app.ts: App, routes, load", "tools/run.py: Runner, main", "lib/x.rs: Store, helper", "(4 source files; 1 other files not outlined)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "nested") || strings.Contains(out, "inner") || strings.Contains(out, "Fixture") {
+		t.Errorf("nested declarations or fixtures included:\n%s", out)
+	}
+	q, _ := run(t, RepoMap{}, env, map[string]any{"query": "start"})
+	if !strings.Contains(q, "main.go: Start") || strings.Contains(q, "app.ts") {
+		t.Errorf("query:\n%s", q)
+	}
+}

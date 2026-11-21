@@ -37,6 +37,7 @@ Commands:
   mcp         Add, list and manage MCP servers (outside tools)
   hooks       List your hooks (commands run around tool calls)
   verify      Run the project's own build, lint and test commands
+  repo-map    Outline the codebase: files and their top-level declarations
   sessions    List, show or delete saved sessions
   init        Write a KALONIDE.md guide for the current project
   version     Print the version
@@ -80,6 +81,8 @@ func Main(args []string) int {
 			return cmdHooks(args[1:])
 		case "verify":
 			return cmdVerify(args[1:])
+		case "repo-map":
+			return cmdRepoMap(args[1:])
 		case "sessions", "session":
 			return cmdSessions(args[1:])
 		case "init":

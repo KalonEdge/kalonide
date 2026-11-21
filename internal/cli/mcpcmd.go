@@ -11,6 +11,7 @@ import (
 
 	"github.com/KalonEdge/kalonide/internal/config"
 	"github.com/KalonEdge/kalonide/internal/mcp"
+	"github.com/KalonEdge/kalonide/internal/tools"
 	"github.com/KalonEdge/kalonide/internal/ui"
 	"github.com/KalonEdge/kalonide/internal/verify"
 )
@@ -295,4 +296,30 @@ func cmdVerify(args []string) int {
 		return exitOK
 	}
 	return exitError
+}
+
+func cmdRepoMap(args []string) int {
+	var cwd, query string
+	var help bool
+	f := newFlags("repo-map")
+	f.String(&cwd, "<dir>", "Project folder (default: current)", "C", "cwd")
+	f.String(&query, "<text>", "Only files or names containing this text", "query", "q")
+	f.Bool(&help, "Show this help", "h", "help")
+	if err := f.Parse(args); err != nil {
+		return usageFail(err)
+	}
+	if help {
+		fmt.Print("Outline the codebase: each source file with its top-level declarations.\n\nUsage:\n  kalonide repo-map [--query text] [-C dir]\n\n" + f.Usage())
+		return exitOK
+	}
+	root := cwd
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	out, err := tools.BuildRepoMap(context.Background(), root, query, 1<<20)
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Println(out)
+	return exitOK
 }
