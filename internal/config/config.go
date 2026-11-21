@@ -51,6 +51,7 @@ type Settings struct {
 	FallbackModels []string                    `json:"fallbackModels,omitempty"`
 	MCPServers     map[string]mcp.ServerConfig `json:"mcpServers,omitempty"`
 	Hooks          []hooks.Hook                `json:"hooks,omitempty"`
+	SelfCheck      bool                        `json:"selfCheck,omitempty"` // run the project's checks before finishing
 }
 
 // Defaults returns settings that work with a stock Kalon install.

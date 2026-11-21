@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -66,6 +65,9 @@ func (h Hook) matches(event, tool string) bool {
 type Runner struct {
 	Hooks []Hook
 	Root  string // the workspace; hooks run there
+	// Resolve checks a tool's path the way the tools do (allowed roots,
+	// symlinks). KALONIDE_FILE is only set for paths it accepts.
+	Resolve func(path string) (string, error)
 }
 
 // Result is what one hook run produced.
@@ -99,7 +101,7 @@ func (r *Runner) run(ctx context.Context, h Hook, env map[string]string) Result 
 		text = text[:8000] + "\n[… hook output cut]"
 	}
 	if ctx.Err() == context.DeadlineExceeded {
-		return Result{Output: fmt.Sprintf("hook timed out after %s: %s", timeout, h.Command), Failed: true}
+		return Result{Output: fmt.Sprintf("hook timed out after %s", timeout), Failed: true}
 	}
 	return Result{Output: text, Failed: err != nil}
 }
@@ -114,12 +116,10 @@ func (r *Runner) toolEnv(event, tool string, args json.RawMessage) map[string]st
 	var a struct {
 		Path string `json:"path"`
 	}
-	if json.Unmarshal(args, &a) == nil && a.Path != "" {
-		p := a.Path
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(r.Root, p)
+	if json.Unmarshal(args, &a) == nil && a.Path != "" && r.Resolve != nil {
+		if p, err := r.Resolve(a.Path); err == nil {
+			env["KALONIDE_FILE"] = p
 		}
-		env["KALONIDE_FILE"] = filepath.Clean(p)
 	}
 	return env
 }
@@ -130,14 +130,14 @@ func (r *Runner) Before(ctx context.Context, tool string, args json.RawMessage) 
 	if r == nil {
 		return ""
 	}
-	for _, h := range r.Hooks {
+	for i, h := range r.Hooks {
 		if !h.matches(BeforeTool, tool) {
 			continue
 		}
 		if res := r.run(ctx, h, r.toolEnv(BeforeTool, tool, args)); res.Failed {
 			reason := res.Output
 			if reason == "" {
-				reason = "the hook `" + h.Command + "` refused it"
+				reason = fmt.Sprintf("hook %d refused it", i+1)
 			}
 			return reason
 		}
@@ -151,19 +151,21 @@ func (r *Runner) After(ctx context.Context, tool string, args json.RawMessage) s
 	if r == nil {
 		return ""
 	}
+	// Hooks are named by number: a command line can contain secrets and
+	// is not the model's business.
 	var notes []string
-	for _, h := range r.Hooks {
+	for i, h := range r.Hooks {
 		if !h.matches(AfterTool, tool) {
 			continue
 		}
 		res := r.run(ctx, h, r.toolEnv(AfterTool, tool, args))
 		switch {
 		case res.Failed && res.Output != "":
-			notes = append(notes, fmt.Sprintf("Hook `%s` failed:\n%s", h.Command, res.Output))
+			notes = append(notes, fmt.Sprintf("Hook %d failed:\n%s", i+1, res.Output))
 		case res.Failed:
-			notes = append(notes, fmt.Sprintf("Hook `%s` failed.", h.Command))
+			notes = append(notes, fmt.Sprintf("Hook %d failed.", i+1))
 		case res.Output != "":
-			notes = append(notes, fmt.Sprintf("Hook `%s`:\n%s", h.Command, res.Output))
+			notes = append(notes, fmt.Sprintf("Hook %d:\n%s", i+1, res.Output))
 		}
 	}
 	return strings.Join(notes, "\n\n")

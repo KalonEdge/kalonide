@@ -188,7 +188,7 @@ func Default() *Registry {
 	return NewRegistry(
 		ReadFile{}, ListDirectory{}, Glob{}, Grep{},
 		WriteFile{}, EditFile{},
-		Bash{},
+		Bash{}, Verify{},
 		WebFetch{},
 		UpdatePlan{}, AskUser{}, Remember{},
 	)

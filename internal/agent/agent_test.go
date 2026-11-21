@@ -484,3 +484,37 @@ func (r recordSink) ToolStart(id, name, summary string) {
 }
 func (recordSink) ToolEnd(string, string, string, bool) {}
 func (recordSink) Notice(string)                        {}
+
+func TestSelfCheckMakesTheModelFixFailures(t *testing.T) {
+	a, s := newAgent(t,
+		call("write_file", map[string]string{"path": "x.go", "content": "package x"}),
+		text("Done."),
+		call("edit_file", map[string]string{"path": "x.go", "old_string": "package x", "new_string": "package y"}),
+		text("Fixed."),
+	)
+	runs := 0
+	a.SelfCheck = func(context.Context) (bool, string) {
+		runs++
+		return runs > 1, "FAIL  go build ./...\n    x.go: wrong package"
+	}
+	res, err := a.Run(context.Background(), "make x.go")
+	if err != nil || res.Text != "Fixed." || runs != 2 || len(s.steps) != 0 {
+		t.Fatalf("%+v %v runs=%d", res, err, runs)
+	}
+	found := false
+	for _, m := range a.Messages {
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, "wrong package") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the failure report never reached the model")
+	}
+
+	// No file changes: no checks.
+	b, _ := newAgent(t, text("Just an answer."))
+	b.SelfCheck = func(context.Context) (bool, string) { t.Fatal("checks ran without changes"); return true, "" }
+	if _, err := b.Run(context.Background(), "explain"); err != nil {
+		t.Fatal(err)
+	}
+}

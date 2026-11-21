@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/config"
 	"github.com/KalonEdge/kalonide/internal/mcp"
 	"github.com/KalonEdge/kalonide/internal/ui"
+	"github.com/KalonEdge/kalonide/internal/verify"
 )
 
 const mcpHelp = `Manage MCP servers: outside tools the agent can use.
@@ -244,4 +246,53 @@ func printHooks() {
 			fmt.Println("   " + ui.Red(p))
 		}
 	}
+}
+
+func cmdVerify(args []string) int {
+	var cwd string
+	var all, asJSON, help bool
+	f := newFlags("verify")
+	f.String(&cwd, "<dir>", "Project folder (default: current)", "C", "cwd")
+	f.Bool(&all, "Run every check even after a failure", "all")
+	f.Bool(&asJSON, "JSON output", "json")
+	f.Bool(&help, "Show this help", "h", "help")
+	if err := f.Parse(args); err != nil {
+		return usageFail(err)
+	}
+	if help {
+		fmt.Print("Run the project's own build, lint and test commands.\n\nUsage:\n  kalonide verify [--all] [--json] [-C dir]\n\n" + f.Usage())
+		return exitOK
+	}
+	root := cwd
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	checks := verify.Detect(root)
+	if len(checks) == 0 {
+		fmt.Println("No checks found (go.mod, package.json, Cargo.toml, pyproject.toml, Package.swift or a Makefile test target).")
+		return exitError
+	}
+	results := verify.Run(context.Background(), root, checks, 10*time.Minute, all)
+	if asJSON {
+		out := []map[string]any{}
+		for _, r := range results {
+			out = append(out, map[string]any{"id": r.Check.ID, "command": r.Check.Command, "passed": r.Passed, "seconds": r.Seconds, "output": r.Output})
+		}
+		printJSON(map[string]any{"passed": verify.AllPassed(results), "checks": out})
+	} else {
+		for _, r := range results {
+			mark := ui.Green("✔")
+			if !r.Passed {
+				mark = ui.Red("✘")
+			}
+			fmt.Printf("%s %s %s\n", mark, r.Check.Label, ui.Dim(fmt.Sprintf("%.1fs", r.Seconds)))
+			if !r.Passed && r.Output != "" {
+				fmt.Println(ui.Dim("    " + strings.ReplaceAll(r.Output, "\n", "\n    ")))
+			}
+		}
+	}
+	if verify.AllPassed(results) {
+		return exitOK
+	}
+	return exitError
 }

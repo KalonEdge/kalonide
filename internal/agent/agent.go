@@ -76,6 +76,9 @@ type Result struct {
 	Usage llm.Usage
 }
 
+// maxSelfChecks bounds self-check rounds per run.
+const maxSelfChecks = 2
+
 // maxNudges bounds how often one run asks the model to carry on after it
 // stopped mid-task (a dropped tool call or an announced but untaken step).
 const maxNudges = 3
@@ -93,6 +96,10 @@ type Agent struct {
 	Gate      Gate
 	Sink      Sink
 	Hooks     ToolHooks // optional
+	// SelfCheck, if set, runs the project's checks when the model is about
+	// to finish after changing files. It returns whether they passed and a
+	// report for the model.
+	SelfCheck func(ctx context.Context) (bool, string)
 
 	// SystemPrompt builds the system prompt; toolsOn says whether tools
 	// will be offered.
@@ -110,6 +117,7 @@ type Agent struct {
 	// positions from before one no longer line up.
 	Compactions int
 
+	changed bool            // a tool changed files during the current run
 	noTools map[string]bool // models that rejected tool calling
 	tried   map[string]bool // fallback models already used this run
 }
@@ -186,6 +194,8 @@ func (a *Agent) RunMessage(ctx context.Context, msg llm.Message) (*Result, error
 	continuations := 0
 	nudged := false // empty-reply nudge used
 	nudges := 0     // "you stopped mid-task" nudges used
+	checks := 0     // self-check rounds used
+	a.changed = false
 	failures := map[string]int{}
 
 	for res.Turns < a.maxTurns() {
@@ -245,6 +255,16 @@ func (a *Agent) RunMessage(ctx context.Context, msg llm.Message) (*Result, error
 				nudges++
 				a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "You said what you will do next but did not do it. Do it now with the tools, then report the result."})
 				continue
+			}
+			if a.SelfCheck != nil && a.changed && checks < maxSelfChecks && a.toolsOn() {
+				checks++
+				a.changed = false
+				a.sink().Notice("running the project's checks before finishing")
+				if ok, report := a.SelfCheck(ctx); !ok && ctx.Err() == nil {
+					a.sink().Notice("checks failed; asking the model to fix them")
+					a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "The project's checks failed after your changes:\n\n" + tools.Truncate(report, 12000) + "\n\nFix the problems, then reply when the checks pass."})
+					continue
+				}
 			}
 			res.Text = content
 			res.Stop = StopDone
@@ -405,18 +425,21 @@ func (a *Agent) runTool(ctx context.Context, call llm.ToolCall, failures map[str
 	}
 	if a.Hooks != nil {
 		if why := a.Hooks.Before(ctx, name, args); why != "" {
-			msg := "Blocked by one of the user's hooks, so it did not run: " + tools.Truncate(why, 2000)
+			msg := "Blocked by one of the user's hooks, so it did not run: " + tools.Truncate(tools.Redact(why), 2000)
 			a.sink().ToolEnd(call.ID, name, msg, true)
 			return msg
 		}
 	}
 	out, err := t.Run(ctx, a.Env, args)
 	failed := err != nil
+	if !failed && (t.Kind() == tools.KindWrite || t.Kind() == tools.KindShell) && name != "verify" {
+		a.changed = true
+	}
 	if err != nil {
 		out = "Error: " + err.Error()
 	}
 	out = tools.Truncate(tools.Redact(out), tools.MaxOutput)
-	if a.Hooks != nil {
+	if a.Hooks != nil && !failed {
 		if note := a.Hooks.After(ctx, name, args); note != "" {
 			out += "\n\n" + tools.Truncate(tools.Redact(note), 8000)
 		}

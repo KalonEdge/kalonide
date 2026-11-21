@@ -21,6 +21,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/session"
 	"github.com/KalonEdge/kalonide/internal/tools"
 	"github.com/KalonEdge/kalonide/internal/ui"
+	"github.com/KalonEdge/kalonide/internal/verify"
 	"github.com/KalonEdge/kalonide/internal/version"
 )
 
@@ -70,6 +71,7 @@ func init() {
 		{"hooks", "", "List your hooks", (*shell).cmdHooks},
 		{"init", "", "Write a KALONIDE.md guide for this project", (*shell).cmdInit},
 		{"image", "<file>", "Attach an image to your next message (vision models)", (*shell).cmdImage},
+		{"selfcheck", "", "Turn on/off running the project's checks before the agent finishes", (*shell).cmdSelfCheck},
 		{"thinking", "", "Show or hide model thinking", (*shell).cmdThinking},
 		{"doctor", "", "Check the setup", (*shell).cmdDoctor},
 		{"config", "", "Show settings", (*shell).cmdConfig},
@@ -964,5 +966,25 @@ func (sh *shell) cmdMCP(string) (string, bool) {
 func (sh *shell) cmdHooks(string) (string, bool) {
 	printHooks()
 	fmt.Println()
+	return "", false
+}
+
+func (sh *shell) cmdSelfCheck(string) (string, bool) {
+	on := sh.rt.agent.SelfCheck == nil
+	sh.rt.setSelfCheck(on)
+	if !on {
+		fmt.Println(ui.Dim("Self-check is off.") + "\n")
+		return "", false
+	}
+	checks := verify.Detect(sh.rt.env.Root)
+	if len(checks) == 0 {
+		fmt.Println(ui.Yellow("! ") + "Self-check is on, but no checks were found in this project (go.mod, package.json, Makefile…).\n")
+		return "", false
+	}
+	var labels []string
+	for _, c := range checks {
+		labels = append(labels, c.Label)
+	}
+	fmt.Println(ui.Green("✔") + " self-check is on: after changing files the agent runs " + strings.Join(labels, ", ") + " and fixes failures\n")
 	return "", false
 }

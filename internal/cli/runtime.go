@@ -22,6 +22,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/prompt"
 	"github.com/KalonEdge/kalonide/internal/session"
 	"github.com/KalonEdge/kalonide/internal/tools"
+	"github.com/KalonEdge/kalonide/internal/verify"
 )
 
 // runOptions are the flags shared by the shell and exec.
@@ -36,6 +37,7 @@ type runOptions struct {
 	fallbacks []string
 	maxTurns  int
 	mode      string
+	selfCheck bool
 }
 
 func (o *runOptions) register(f *flagSet) {
@@ -48,6 +50,7 @@ func (o *runOptions) register(f *flagSet) {
 	f.Bool(&o.noTools, "Plain chat: offer no tools", "no-tools")
 	f.List(&o.fallbacks, "<models>", "Fall back to these models when the model is overloaded", "fallback-models")
 	f.Int(&o.maxTurns, "<n>", "Maximum model calls per prompt", "max-turns")
+	f.Bool(&o.selfCheck, "Run the project's checks before finishing, and fix failures", "self-check")
 }
 
 // runtime is everything a session needs, wired together.
@@ -162,6 +165,9 @@ func newRuntime(o runOptions) (*runtime, error) {
 		ContextWindow: s.ContextWindow,
 	}
 	task.Parent = rt.agent
+	if s.SelfCheck || o.selfCheck {
+		rt.setSelfCheck(true)
+	}
 	var valid []hooks.Hook
 	for i, h := range s.Hooks {
 		if problem := h.Valid(); problem != "" {
@@ -171,7 +177,7 @@ func newRuntime(o runOptions) (*runtime, error) {
 		valid = append(valid, h)
 	}
 	if len(valid) > 0 {
-		rt.hooks = &hooks.Runner{Hooks: valid, Root: env.Root}
+		rt.hooks = &hooks.Runner{Hooks: valid, Root: env.Root, Resolve: env.Resolve}
 		rt.agent.Hooks = rt.hooks
 	}
 	rt.agent.SystemPrompt = func(model string, toolsOn bool) string {
@@ -487,4 +493,21 @@ func (rt *runtime) close() { closeMCP(rt.mcp) }
 // commands returns the user's and the project's slash commands.
 func (rt *runtime) commands() []extend.Item {
 	return extend.Commands(filepath.Join(rt.env.Root, ".kalonide"), config.Home())
+}
+
+// setSelfCheck turns the check-before-finishing loop on or off.
+func (rt *runtime) setSelfCheck(on bool) {
+	if !on {
+		rt.agent.SelfCheck = nil
+		return
+	}
+	root := rt.env.Root
+	rt.agent.SelfCheck = func(ctx context.Context) (bool, string) {
+		checks := verify.Detect(root)
+		if len(checks) == 0 {
+			return true, ""
+		}
+		results := verify.Run(ctx, root, checks, 10*time.Minute, false)
+		return verify.AllPassed(results), verify.Summary(results, len(checks)-len(results))
+	}
 }

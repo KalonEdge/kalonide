@@ -3,13 +3,20 @@ package hooks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
 
 func TestHooks(t *testing.T) {
 	root := t.TempDir()
-	r := &Runner{Root: root, Hooks: []Hook{
+	resolve := func(p string) (string, error) {
+		if strings.HasPrefix(p, "/etc") {
+			return "", errors.New("outside the workspace")
+		}
+		return root + "/" + p, nil
+	}
+	r := &Runner{Root: root, Resolve: resolve, Hooks: []Hook{
 		{Event: BeforeTool, Tools: []string{"bash"}, Command: `case "$KALONIDE_ARGS" in *push*) echo "no pushing from the agent"; exit 1;; esac`},
 		{Event: AfterTool, Tools: []string{"write_file"}, Command: `echo "formatted $KALONIDE_FILE"`},
 		{Event: AfterTool, Tools: []string{"write_file"}, Command: `exit 3`},
@@ -27,8 +34,11 @@ func TestHooks(t *testing.T) {
 		t.Fatal("hook ran for the wrong tool")
 	}
 	note := r.After(ctx, "write_file", json.RawMessage(`{"path":"a/b.go"}`))
-	if !strings.Contains(note, "formatted "+root+"/a/b.go") || !strings.Contains(note, "`exit 3` failed") || strings.Contains(note, "all-tools") {
+	if !strings.Contains(note, "formatted "+root+"/a/b.go") || !strings.Contains(note, "Hook 3 failed") || strings.Contains(note, "all-tools") || strings.Contains(note, "exit 3") {
 		t.Fatalf("after: %q", note)
+	}
+	if note := r.After(ctx, "write_file", json.RawMessage(`{"path":"/etc/passwd"}`)); strings.Contains(note, "/etc/passwd") {
+		t.Fatalf("a path outside the workspace reached the hook: %q", note)
 	}
 	if got := r.End(ctx, "done"); got != "done: done" {
 		t.Fatalf("end: %q", got)

@@ -458,3 +458,27 @@ func TestHooksAroundToolCalls(t *testing.T) {
 		t.Fatalf("before_tool block / invalid hook warning:\n%s\n%s", r.stdout, r.stderr)
 	}
 }
+
+func TestVerifyCommand(t *testing.T) {
+	env, _ := setup(t)
+	work := t.TempDir()
+	src := filepath.Join("..", "..", "bench", "testdata", "tasks", "01-go-off-by-one")
+	for _, sub := range []string{"repo", "hidden"} {
+		filepath.Walk(filepath.Join(src, sub), func(p string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() {
+				data, _ := os.ReadFile(p)
+				os.WriteFile(filepath.Join(work, info.Name()), data, 0o644)
+			}
+			return nil
+		})
+	}
+	r := kalonide(t, env, work, "verify")
+	if r.code != 1 || !strings.Contains(r.stdout, "✘ go test ./...") || !strings.Contains(r.stdout, "Average") {
+		t.Fatalf("broken project: %d\n%s", r.code, r.stdout)
+	}
+	fixed, _ := os.ReadFile(filepath.Join(src, "solution", "stats.go"))
+	os.WriteFile(filepath.Join(work, "stats.go"), fixed, 0o644)
+	if r := kalonide(t, env, work, "verify", "--json"); r.code != 0 || !strings.Contains(r.stdout, `"passed": true`) {
+		t.Fatalf("fixed project: %d\n%s", r.code, r.stdout)
+	}
+}

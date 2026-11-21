@@ -72,6 +72,7 @@ func (t *TaskTool) Run(ctx context.Context, env *tools.Env, args json.RawMessage
 		Tools:         tools.NewRegistry(tools.ReadFile{}, tools.ListDirectory{}, tools.Glob{}, tools.Grep{}),
 		Env:           &tools.Env{Root: env.Root, ExtraRoots: env.ExtraRoots},
 		Gate:          AllowAll{},
+		Hooks:         p.Hooks, // the user's hooks apply to the helper's calls too
 		Sink:          &helperSink{parent: p.sink()},
 		MaxTurns:      turns,
 		ContextWindow: p.ContextWindow,
