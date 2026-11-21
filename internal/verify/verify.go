@@ -135,12 +135,16 @@ func pyTests(root string) bool {
 	return false
 }
 
+// Wrapper turns an argv into one that runs it somewhere safer (a
+// sandbox); nil runs commands as they are.
+type Wrapper func(argv []string) []string
+
 // Run executes the checks in order. It stops at the first failure unless
 // all is set, because later checks usually fail for the same reason.
-func Run(ctx context.Context, root string, checks []Check, timeout time.Duration, all bool) []Result {
+func Run(ctx context.Context, root string, checks []Check, timeout time.Duration, all bool, wrap Wrapper) []Result {
 	var out []Result
 	for _, c := range checks {
-		r := runOne(ctx, root, c, timeout)
+		r := runOne(ctx, root, c, timeout, wrap)
 		out = append(out, r)
 		if ctx.Err() != nil || (!r.Passed && !all) {
 			break
@@ -149,10 +153,14 @@ func Run(ctx context.Context, root string, checks []Check, timeout time.Duration
 	return out
 }
 
-func runOne(ctx context.Context, root string, c Check, timeout time.Duration) Result {
+func runOne(ctx context.Context, root string, c Check, timeout time.Duration, wrap Wrapper) Result {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", c.Command)
+	argv := []string{"/bin/sh", "-c", c.Command}
+	if wrap != nil {
+		argv = wrap(argv)
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1", "FORCE_COLOR=0")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

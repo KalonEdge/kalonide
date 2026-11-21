@@ -52,6 +52,11 @@ type Settings struct {
 	MCPServers     map[string]mcp.ServerConfig `json:"mcpServers,omitempty"`
 	Hooks          []hooks.Hook                `json:"hooks,omitempty"`
 	SelfCheck      bool                        `json:"selfCheck,omitempty"` // run the project's checks before finishing
+	// Sandbox confines the agent's shell commands: "auto" (default: in
+	// auto-edit, yolo and exec), "on" or "off".
+	Sandbox         string   `json:"sandbox,omitempty"`
+	SandboxNetwork  bool     `json:"sandboxNetwork,omitempty"`  // let sandboxed commands reach other machines
+	SandboxWritable []string `json:"sandboxWritable,omitempty"` // extra folders sandboxed commands may write
 }
 
 // Defaults returns settings that work with a stock Kalon install.
@@ -147,6 +152,11 @@ func (s *Settings) normalize() {
 	}
 	if s.MaxTurns <= 0 {
 		s.MaxTurns = 60
+	}
+	switch s.Sandbox {
+	case "auto", "on", "off":
+	default:
+		s.Sandbox = "auto"
 	}
 	if s.ContextWindow < 2048 {
 		s.ContextWindow = 32768

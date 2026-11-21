@@ -20,6 +20,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/mcp"
 	"github.com/KalonEdge/kalonide/internal/prompt"
+	"github.com/KalonEdge/kalonide/internal/sandbox"
 	"github.com/KalonEdge/kalonide/internal/session"
 	"github.com/KalonEdge/kalonide/internal/tools"
 	"github.com/KalonEdge/kalonide/internal/verify"
@@ -67,6 +68,9 @@ type runtime struct {
 	mcp      []*mcp.Client // connected MCP servers
 	warnings []string      // problems to show the user once, e.g. an MCP server that failed
 	hooks    *hooks.Runner // nil when no hooks are configured
+
+	interactive bool          // a person can approve actions (the shell)
+	modeNow     func() string // the current permission mode; the shell's can change
 }
 
 func newRuntime(o runOptions) (*runtime, error) {
@@ -167,6 +171,11 @@ func newRuntime(o runOptions) (*runtime, error) {
 		ContextWindow: s.ContextWindow,
 	}
 	task.Parent = rt.agent
+	rt.modeNow = func() string { return rt.mode }
+	env.Sandbox = rt.sandboxPolicy
+	if ok, _ := sandbox.Available(); !ok && s.Sandbox == "on" {
+		rt.warnings = append(rt.warnings, "sandbox is on in settings, but this system has none (macOS sandbox-exec, or bubblewrap on Linux); commands run unconfined")
+	}
 	if s.SelfCheck || o.selfCheck {
 		rt.setSelfCheck(true)
 	}
@@ -507,19 +516,40 @@ func (rt *runtime) setSelfCheck(on bool) {
 		rt.agent.SelfCheck = nil
 		return
 	}
-	rt.agent.SelfCheck = selfChecker{root: rt.env.Root}
+	rt.agent.SelfCheck = selfChecker{env: rt.env}
 }
 
-// selfChecker runs the project's checks for the agent's self-check.
-type selfChecker struct{ root string }
+// selfChecker runs the project's checks for the agent's self-check, in
+// the sandbox when one applies.
+type selfChecker struct{ env *tools.Env }
 
-func (c selfChecker) Summary() string { return tools.CheckSummary(c.root) }
+func (c selfChecker) Summary() string { return tools.CheckSummary(c.env.Root) }
 
 func (c selfChecker) Run(ctx context.Context) (bool, string) {
-	checks := verify.Detect(c.root)
+	checks := verify.Detect(c.env.Root)
 	if len(checks) == 0 {
 		return true, ""
 	}
-	results := verify.Run(ctx, c.root, checks, 10*time.Minute, false)
+	results := verify.Run(ctx, c.env.Root, checks, 10*time.Minute, false, c.env.SandboxWrapper())
 	return verify.AllPassed(results), verify.Summary(results, len(checks)-len(results))
+}
+
+// sandboxPolicy decides, per command, whether the agent's shell commands
+// run confined: always with "on", never with "off", and with "auto" when
+// nobody approves each command (auto-edit, yolo, or a headless run).
+func (rt *runtime) sandboxPolicy() *sandbox.Policy {
+	if ok, _ := sandbox.Available(); !ok {
+		return nil
+	}
+	switch rt.settings.Sandbox {
+	case "off":
+		return nil
+	case "auto", "":
+		if rt.interactive && rt.modeNow() == config.ModeAsk {
+			return nil
+		}
+	}
+	writable := append([]string{rt.env.Root}, rt.env.ExtraRoots...)
+	writable = append(writable, rt.settings.SandboxWritable...)
+	return &sandbox.Policy{Writable: writable, Network: rt.settings.SandboxNetwork}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/extend"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/prompt"
+	"github.com/KalonEdge/kalonide/internal/sandbox"
 	"github.com/KalonEdge/kalonide/internal/session"
 	"github.com/KalonEdge/kalonide/internal/tools"
 	"github.com/KalonEdge/kalonide/internal/ui"
@@ -70,6 +71,7 @@ func init() {
 		{"mcp", "", "List connected MCP servers and their tools", (*shell).cmdMCP},
 		{"hooks", "", "List your hooks", (*shell).cmdHooks},
 		{"ps", "", "List background commands the agent started", (*shell).cmdPS},
+		{"sandbox", "", "Show whether the agent's commands are sandboxed", (*shell).cmdSandbox},
 		{"init", "", "Write a KALONIDE.md guide for this project", (*shell).cmdInit},
 		{"image", "<file>", "Attach an image to your next message (vision models)", (*shell).cmdImage},
 		{"selfcheck", "", "Turn on/off running the project's checks before the agent finishes", (*shell).cmdSelfCheck},
@@ -95,6 +97,8 @@ func runShell(o runOptions, resumeID string, resume bool) int {
 	sh := &shell{rt: rt, term: term, render: ui.NewRenderer(), undo: &checkpoint.Store{}}
 	rt.env.BeforeWrite = func(path string) error { return sh.undo.Record(path) }
 	sh.gate = newGate(rt.mode, true, term, sh.render)
+	rt.interactive = true
+	rt.modeNow = sh.gate.Mode
 	sh.editor = ui.NewEditor(term, config.HistoryPath())
 	sh.editor.Complete = sh.complete
 	sh.editor.ShiftTab = func() { sh.gate.Cycle() }
@@ -232,6 +236,9 @@ func (sh *shell) footerLine() string {
 		mode = ui.Green("● ask")
 	}
 	attached := ""
+	if sh.rt.sandboxPolicy() != nil {
+		attached += ui.Dim(" · sandboxed")
+	}
 	if n := len(sh.images); n > 0 {
 		attached = ui.Accent(fmt.Sprintf(" · %d image(s) attached", n))
 	}
@@ -361,7 +368,7 @@ func (sh *shell) shellEscape(cmd string) {
 		case <-ctx.Done():
 		}
 	}()
-	out, err := tools.RunCommand(ctx, sh.rt.env.Root, cmd, 10*time.Minute)
+	out, err := tools.RunCommand(ctx, sh.rt.env.Root, cmd, 10*time.Minute, nil) // typed by the user: not sandboxed
 	if err != nil {
 		fmt.Println(ui.Red("! ") + err.Error())
 		return
@@ -1000,5 +1007,25 @@ func (sh *shell) cmdPS(string) (string, bool) {
 		fmt.Println("  " + ui.Sanitize(l))
 	}
 	fmt.Println(ui.Dim("\n  They stop when you leave Kalonide; ask the agent to stop one sooner.") + "\n")
+	return "", false
+}
+
+func (sh *shell) cmdSandbox(string) (string, bool) {
+	ok, tool := sandbox.Available()
+	if !ok {
+		fmt.Println(ui.Yellow("! ") + "No sandbox on this system (macOS sandbox-exec, or bubblewrap on Linux): commands run unconfined, so approvals are your safeguard.\n")
+		return "", false
+	}
+	p := sh.rt.sandboxPolicy()
+	if p == nil {
+		fmt.Printf("Commands run %s (sandbox: %s, mode: %s). In auto they are confined in auto-edit and yolo.\n\n", ui.Bold("unconfined"), sh.rt.settings.Sandbox, sh.gate.Mode())
+		return "", false
+	}
+	net := "this machine only"
+	if p.Network {
+		net = "any"
+	}
+	fmt.Printf("%s with %s: writes only in %s (plus temp folders and build caches); network: %s.\n", ui.Green("Commands are sandboxed"), tool, strings.Join(p.Writable, ", "), net)
+	fmt.Println(ui.Dim("  Settings: sandbox (auto/on/off), sandboxNetwork, sandboxWritable.") + "\n")
 	return "", false
 }

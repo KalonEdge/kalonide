@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/KalonEdge/kalonide/internal/sandbox"
 )
 
 // Procs tracks commands started in the background, such as dev servers,
@@ -71,7 +73,7 @@ func (p *proc) status() (bool, int) {
 }
 
 // Start runs command in dir in the background and returns its id.
-func (ps *Procs) Start(dir, command string) (string, error) {
+func (ps *Procs) Start(dir, command string, policy *sandbox.Policy) (string, error) {
 	ps.mu.Lock()
 	if ps.procs == nil {
 		ps.procs = map[string]*proc{}
@@ -90,7 +92,8 @@ func (ps *Procs) Start(dir, command string) (string, error) {
 	id := fmt.Sprintf("bg%d", ps.next)
 	ps.mu.Unlock()
 
-	cmd := exec.Command(shellPath(), "-c", command)
+	argv := shellArgv(command, policy)
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "KALONIDE=1", "PAGER=cat", "GIT_PAGER=cat", "GIT_TERMINAL_PROMPT=0")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

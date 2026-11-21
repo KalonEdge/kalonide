@@ -57,7 +57,7 @@ func TestDetect(t *testing.T) {
 
 func TestRunStopsAtFirstFailure(t *testing.T) {
 	checks := []Check{{Label: "ok", Command: "echo fine"}, {Label: "bad", Command: "echo broken >&2; exit 2"}, {Label: "later", Command: "true"}}
-	res := Run(context.Background(), t.TempDir(), checks, time.Minute, false)
+	res := Run(context.Background(), t.TempDir(), checks, time.Minute, false, nil)
 	if len(res) != 2 || !res[0].Passed || res[1].Passed || res[1].Output != "broken" || AllPassed(res) {
 		t.Fatalf("%+v", res)
 	}
@@ -65,7 +65,7 @@ func TestRunStopsAtFirstFailure(t *testing.T) {
 	if !strings.Contains(sum, "PASS  ok") || !strings.Contains(sum, "FAIL  bad") || !strings.Contains(sum, "    broken") || !strings.Contains(sum, "1 later check") {
 		t.Fatalf("summary:\n%s", sum)
 	}
-	if all := Run(context.Background(), t.TempDir(), checks, time.Minute, true); len(all) != 3 {
+	if all := Run(context.Background(), t.TempDir(), checks, time.Minute, true, nil); len(all) != 3 {
 		t.Fatal("all=true must run every check")
 	}
 }

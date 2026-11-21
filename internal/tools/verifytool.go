@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KalonEdge/kalonide/internal/sandbox"
 	"github.com/KalonEdge/kalonide/internal/verify"
 )
 
@@ -54,6 +55,17 @@ func (Verify) Run(ctx context.Context, env *Env, args json.RawMessage) (string, 
 	if len(checks) == 0 {
 		return "No checks found (no go.mod, package.json, Cargo.toml, pyproject.toml, Package.swift or Makefile test target). Run the project's tests with bash instead.", nil
 	}
-	results := verify.Run(ctx, env.Root, checks, 10*time.Minute, a.All)
+	results := verify.Run(ctx, env.Root, checks, 10*time.Minute, a.All, env.SandboxWrapper())
 	return verify.Summary(results, len(checks)-len(results)), nil
+}
+
+// SandboxWrapper returns a verify.Wrapper for the current sandbox policy,
+// or nil when commands run unconfined.
+func (e *Env) SandboxWrapper() verify.Wrapper {
+	p := e.sandboxPolicy()
+	if p == nil {
+		return nil
+	}
+	policy := *p
+	return func(argv []string) []string { return sandbox.Wrap(argv, policy) }
 }

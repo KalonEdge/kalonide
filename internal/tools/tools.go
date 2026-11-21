@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/KalonEdge/kalonide/internal/llm"
+	"github.com/KalonEdge/kalonide/internal/sandbox"
 )
 
 // Kind says what a tool can affect. The permission gate decides by Kind.
@@ -89,6 +90,11 @@ type Env struct {
 
 	// Procs tracks background commands; nil means bash cannot start any.
 	Procs *Procs
+
+	// Sandbox, if set, returns the policy for the next shell command, or
+	// nil to run it unconfined. It is asked per command, so a change of
+	// permission mode applies at once.
+	Sandbox func() *sandbox.Policy
 
 	// BeforeWrite, if set, is called with a file's path just before a tool
 	// changes it, so the old content can be kept for undo.
@@ -269,4 +275,22 @@ func (e *Env) beforeWrite(path string) error {
 		return fmt.Errorf("could not save %s for undo, so it was not changed: %w", e.Rel(path), err)
 	}
 	return nil
+}
+
+// sandboxPolicy returns the policy for a command, or nil.
+func (e *Env) sandboxPolicy() *sandbox.Policy {
+	if e.Sandbox == nil {
+		return nil
+	}
+	return e.Sandbox()
+}
+
+// shellArgv builds the argv for a shell command, inside the sandbox when
+// a policy applies.
+func shellArgv(command string, p *sandbox.Policy) []string {
+	argv := []string{shellPath(), "-c", command}
+	if p == nil {
+		return argv
+	}
+	return sandbox.Wrap(argv, *p)
 }

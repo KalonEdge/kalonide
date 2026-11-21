@@ -13,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/KalonEdge/kalonide/internal/sandbox"
 )
 
 // Bash runs a shell command in the workspace.
@@ -156,7 +158,7 @@ func (Bash) Run(ctx context.Context, env *Env, args json.RawMessage) (string, er
 		if env.Procs == nil {
 			return "", errors.New("background commands are not available here")
 		}
-		id, err := env.Procs.Start(dir, a.Command)
+		id, err := env.Procs.Start(dir, a.Command, env.sandboxPolicy())
 		if err != nil {
 			return "", err
 		}
@@ -164,17 +166,19 @@ func (Bash) Run(ctx context.Context, env *Env, args json.RawMessage) (string, er
 		first, _ := env.Procs.Output(ctx, id, 1500*time.Millisecond)
 		return fmt.Sprintf("Started %s in the background. Read more with bash_output, stop it with bash_stop.\n%s", id, first), nil
 	}
-	return RunCommand(ctx, dir, a.Command, timeout)
+	return RunCommand(ctx, dir, a.Command, timeout, env.sandboxPolicy())
 }
 
-// RunCommand runs command with a shell in dir. Output (stdout and stderr
-// interleaved) is capped; on timeout or cancellation the whole process
-// group is killed so background children do not linger.
-func RunCommand(ctx context.Context, dir, command string, timeout time.Duration) (string, error) {
+// RunCommand runs command with a shell in dir, inside the sandbox when
+// policy is set. Output (stdout and stderr interleaved) is capped; on
+// timeout or cancellation the whole process group is killed so background
+// children do not linger.
+func RunCommand(ctx context.Context, dir, command string, timeout time.Duration, policy *sandbox.Policy) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.Command(shellPath(), "-c", command)
+	argv := shellArgv(command, policy)
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Stdin = nil // /dev/null: nothing can block waiting for input
 	cmd.Env = append(os.Environ(),

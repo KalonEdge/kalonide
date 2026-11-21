@@ -273,7 +273,7 @@ func cmdVerify(args []string) int {
 		fmt.Println("No checks found (go.mod, package.json, Cargo.toml, pyproject.toml, Package.swift or a Makefile test target).")
 		return exitError
 	}
-	results := verify.Run(context.Background(), root, checks, 10*time.Minute, all)
+	results := verify.Run(context.Background(), root, checks, 10*time.Minute, all, nil)
 	if asJSON {
 		out := []map[string]any{}
 		for _, r := range results {

@@ -15,6 +15,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/discover"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/prompt"
+	"github.com/KalonEdge/kalonide/internal/sandbox"
 	"github.com/KalonEdge/kalonide/internal/ui"
 	"github.com/KalonEdge/kalonide/internal/version"
 )
@@ -581,6 +582,11 @@ func runDoctor(o doctorOptions) int {
 			detail = "no KALONIDE.md (run kalonide init) · " + detail
 		}
 		add(check{Name: "project", OK: true, Warn: len(ctxFiles) == 0, Detail: detail})
+	}
+	if ok, tool := sandbox.Available(); ok {
+		add(check{Name: "sandbox", OK: true, Detail: tool + " confines the agent's commands (setting: " + s.Sandbox + ")"})
+	} else {
+		add(check{Name: "sandbox", OK: true, Warn: true, Detail: "not available on this system; approvals are the safeguard"})
 	}
 	if discover.IsLocal(p.BaseURL) {
 		add(check{Name: "privacy", OK: true, Detail: "model requests stay on this machine; web_fetch reaches the internet only when you allow it"})
