@@ -6,9 +6,25 @@ A coding agent for your terminal. It works with **Kalon** out of the box,
 and with any OpenAI-compatible model server: Ollama, LM Studio, OpenRouter,
 OpenAI, or your own.
 
+## Install
+
+From a release archive: unpack it and put `kalonide` on your PATH.
+
+```bash
+tar -xzf kalonide_0.1.0_darwin_universal.tar.gz
+sudo mv kalonide_0.1.0_darwin_universal/kalonide /usr/local/bin/
+```
+
+From source (Go 1.25 or newer):
+
 ```bash
 make install        # builds ./kalonide and links it into /usr/local/bin
-kalonide            # interactive shell in the current folder
+```
+
+Then, in any project folder:
+
+```bash
+kalonide
 ```
 
 Start the Kalon app with its local API on (port 11434) and that's it: no
@@ -30,8 +46,10 @@ it any time with `/model`.
 | `!cmd` | run a shell command yourself |
 
 Commands: `/model` (live picker), `/models`, `/provider`, `/mode`, `/new`,
-`/clear`, `/undo`, `/rewind`, `/resume`, `/sessions`, `/compact`, `/context`, `/tools`,
-`/add-dir`, `/memory`, `/init`, `/thinking`, `/doctor`, `/config`, `/exit`.
+`/clear`, `/undo`, `/rewind`, `/resume`, `/sessions`, `/search`, `/compact`,
+`/context`, `/tools`, `/add-dir`, `/image`, `/memory`, `/mcp`, `/hooks`,
+`/ps`, `/sandbox`, `/selfcheck`, `/init`, `/thinking`, `/doctor`, `/config`,
+`/exit`, plus your own commands from `.kalonide/commands/`.
 
 **One-shot, for scripts and CI:** `kalonide exec "fix the failing test"`
 
@@ -43,7 +61,12 @@ Commands: `/model` (live picker), `/models`, `/provider`, `/mode`, `/new`,
 
 **Admin:** `kalonide doctor` (also finds model servers on this machine),
 `models` / `models use <id>`, `providers add|use|remove`, `config set`,
-`sessions`, `resume`, `init`.
+`sessions` (and `sessions audit <id>`), `resume`, `init`, `trust`.
+
+**More:** `verify` (the project's checks), `repo-map`, `changes` (and
+`changes commit --auto` with a model-written message), `search`, `usage`,
+`mcp` (add outside tools), `hooks`, `serve --mcp` (offer Kalonide's tools
+to other apps), `acp` (editors such as Zed; experimental).
 
 ## Safety
 
@@ -109,6 +132,8 @@ overrides: `KALONIDE_PROVIDER`, `KALONIDE_BASE_URL`, `KALONIDE_MODEL`,
 make test     # unit + end-to-end tests (the e2e suite builds the binary)
 make race     # with the race detector
 make vet      # vet + gofmt check
+make shell-check  # 23 checks typed into the shell through a real terminal
+make release VERSION=0.1.0  # archives and checksums in dist/
 make bench   # the scoreboard: 20 real tasks on Kalon (BENCH_MODEL=gemma4:4b)
 ```
 
