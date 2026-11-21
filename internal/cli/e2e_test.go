@@ -377,9 +377,21 @@ func TestMCPServerToolsReachTheModel(t *testing.T) {
 	if r.code != 0 || !strings.Contains(r.stdout, "2 tools: echo, store") {
 		t.Fatalf("list: %d %s %s", r.code, r.stdout, r.stderr)
 	}
+	// The server's read-only hint alone is not trusted.
+	r = kalonide(t, env, work, "exec", "MCPREAD")
+	if !strings.Contains(r.stdout, "did not allow") {
+		t.Fatalf("server-claimed read-only tool ran without approval: %s %s", r.stdout, r.stderr)
+	}
+	kalonide(t, env, work, "mcp", "remove", "fake")
+	if r := kalonide(t, env, work, "mcp", "add", "fake", "--auto-approve", "echo", "--", "python3", "-I", script); r.code != 0 {
+		t.Fatalf("re-add: %s", r.stderr)
+	}
 	r = kalonide(t, env, work, "exec", "MCPREAD")
 	if r.code != 0 || !strings.Contains(r.stdout, `RESULT: mcp says {"text": "zz"}`) {
-		t.Fatalf("read-only MCP tool: %s %s", r.stdout, r.stderr)
+		t.Fatalf("user-approved MCP tool: %s %s", r.stdout, r.stderr)
+	}
+	if r := kalonide(t, env, work, "mcp", "add", "Bad__Name", "--", "x"); r.code != 2 {
+		t.Fatalf("bad server name accepted: %d", r.code)
 	}
 	r = kalonide(t, env, work, "exec", "MCPWRITE")
 	if !strings.Contains(r.stdout, "did not allow") || !strings.Contains(r.stderr, "refused") {
@@ -401,5 +413,23 @@ func TestMCPServerToolsReachTheModel(t *testing.T) {
 	r = kalonide(t, env, work, "exec", "hello")
 	if r.code != 0 || !strings.Contains(r.stderr, "MCP server broken is unavailable") {
 		t.Fatalf("broken server: %d %s", r.code, r.stderr)
+	}
+}
+
+func TestCustomCommandsAndSkills(t *testing.T) {
+	env, work := setup(t)
+	os.MkdirAll(filepath.Join(work, ".kalonide", "commands"), 0o755)
+	os.WriteFile(filepath.Join(work, ".kalonide", "commands", "hello.md"), []byte("Say hello to $ARGUMENTS"), 0o644)
+	r := kalonide(t, env, work, "exec", "/hello world")
+	if !strings.Contains(r.stdout, "echo: Say hello to world") {
+		t.Fatalf("custom command not expanded: %s %s", r.stdout, r.stderr)
+	}
+	if r := kalonide(t, env, work, "exec", "--list-tools"); strings.Contains(r.stdout, "skill ") {
+		t.Fatal("skill tool offered without skills")
+	}
+	os.MkdirAll(filepath.Join(work, ".kalonide", "skills"), 0o755)
+	os.WriteFile(filepath.Join(work, ".kalonide", "skills", "deploy.md"), []byte("---\ndescription: How to deploy\n---\nRun make deploy."), 0o644)
+	if r := kalonide(t, env, work, "exec", "--list-tools"); !strings.Contains(r.stdout, "skill ") {
+		t.Fatalf("skill tool missing: %s", r.stdout)
 	}
 }

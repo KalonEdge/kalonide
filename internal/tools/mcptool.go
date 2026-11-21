@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,24 +15,35 @@ import (
 
 // MCPTool exposes one tool of an MCP server to the model.
 type MCPTool struct {
-	Client *mcp.Client
-	Server string
-	Tool   mcp.Tool
+	Client   *mcp.Client
+	Server   string
+	Tool     mcp.Tool
+	ToolName string // unique model-visible name; see MCPToolName
+	Trusted  bool   // the user approved this tool in settings
 }
 
 var reToolChars = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 // MCPToolName builds the model-visible name: mcp__<server>__<tool>, with
-// only the characters model APIs accept, at most 64 long.
-func MCPToolName(server, tool string) string {
+// only the characters model APIs accept. A name that is too long, or that
+// taken says is already used, gets a short hash of the full name instead of
+// being cut off, so two tools never share a name.
+func MCPToolName(server, tool string, taken func(string) bool) string {
 	n := "mcp__" + reToolChars.ReplaceAllString(server, "_") + "__" + reToolChars.ReplaceAllString(tool, "_")
-	if len(n) > 64 {
-		n = n[:64]
+	if len(n) <= 64 && (taken == nil || !taken(n)) {
+		return n
 	}
-	return n
+	sum := sha256.Sum256([]byte(server + "\x00" + tool))
+	suffix := "_" + hex.EncodeToString(sum[:4])
+	return n[:min(len(n), 64-len(suffix))] + suffix
 }
 
-func (t MCPTool) Name() string { return MCPToolName(t.Server, t.Tool.Name) }
+func (t MCPTool) Name() string {
+	if t.ToolName != "" {
+		return t.ToolName
+	}
+	return MCPToolName(t.Server, t.Tool.Name, nil)
+}
 
 func (t MCPTool) Description() string {
 	d := strings.TrimSpace(t.Tool.Description)
@@ -47,10 +60,11 @@ func (t MCPTool) Schema() json.RawMessage {
 	return t.Tool.InputSchema
 }
 
-// Kind trusts the server's read-only hint; anything else needs approval
-// outside yolo mode, since an MCP tool could do anything.
+// Kind: an MCP tool could do anything, so it needs approval outside yolo
+// mode unless the user approved it in settings. The server's own hints
+// never lower the bar.
 func (t MCPTool) Kind() Kind {
-	if t.Tool.Annotations.ReadOnlyHint && !t.Tool.Annotations.DestructiveHint {
+	if t.Trusted && !t.Tool.Annotations.DestructiveHint {
 		return KindRead
 	}
 	return KindExternal

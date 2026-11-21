@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -16,28 +17,31 @@ const mcpHelp = `Manage MCP servers: outside tools the agent can use.
 
 Usage:
   kalonide mcp                                   list servers and check them
-  kalonide mcp add <name> [--env K=V] -- <command> [args...]
-  kalonide mcp add <name> --url <https://…> [--header K=V]
+  kalonide mcp add <name> [--env K=V] [--auto-approve tool] -- <command> [args...]
+  kalonide mcp add <name> --url <https://…> [--header K=V] [--trust-read-only]
   kalonide mcp remove <name>
   kalonide mcp enable <name>
   kalonide mcp disable <name>
 
 Servers are stored in settings.json under "mcpServers", in the same shape
-other MCP clients use. Their tools appear as mcp__<server>__<tool>. Tools a
-server marks read-only run freely; others ask first unless you are in yolo
-mode, and tools marked destructive always ask.
+other MCP clients use. Their tools appear as mcp__<server>__<tool>. Every
+MCP tool asks first unless you are in yolo mode, or you approved it:
+--auto-approve <tool> for a named tool, --trust-read-only for tools the
+server marks read-only. Tools the server marks destructive always ask.
 
 Flags:
 `
 
 func cmdMCP(args []string) int {
 	var url string
-	var env, headers []string
-	var help bool
+	var env, headers, approve []string
+	var help, trustRO bool
 	f := newFlags("mcp")
 	f.String(&url, "<url>", "Remote server URL (streamable HTTP)", "url")
 	f.List(&env, "<K=V>", "Environment variable for a local server (repeatable)", "env")
 	f.List(&headers, "<K=V>", "HTTP header for a remote server (repeatable)", "header")
+	f.List(&approve, "<tool>", "Let this tool run without asking (repeatable)", "auto-approve")
+	f.Bool(&trustRO, "Let tools the server marks read-only run without asking", "trust-read-only")
 	f.Bool(&help, "Show this help", "h", "help")
 	if err := f.Parse(args); err != nil {
 		return usageFail(err)
@@ -72,10 +76,13 @@ func cmdMCP(args []string) int {
 	case "list", "ls":
 		return listMCP(s.MCPServers)
 	case "add":
-		if name == "" || strings.ContainsAny(name, " /\\") {
+		if name == "" {
 			return usageFail(fmt.Errorf("usage: kalonide mcp add <name> -- <command> [args]  or  --url <url>"))
 		}
-		cfg := mcp.ServerConfig{URL: url}
+		if !reServerName.MatchString(name) {
+			return usageFail(fmt.Errorf("server names use lowercase letters, digits and single dashes, e.g. github or docs-search"))
+		}
+		cfg := mcp.ServerConfig{URL: url, AutoApprove: splitAll(approve), TrustReadOnlyHints: trustRO}
 		if url == "" {
 			if len(rest) < 2 {
 				return usageFail(fmt.Errorf("give the command after --, e.g. kalonide mcp add files -- npx -y @modelcontextprotocol/server-filesystem ."))
@@ -150,6 +157,8 @@ func listMCP(servers map[string]mcp.ServerConfig) int {
 	}
 	return exitOK
 }
+
+var reServerName = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 func pairs(list []string) (map[string]string, error) {
 	if len(list) == 0 {

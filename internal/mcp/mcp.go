@@ -25,6 +25,23 @@ type ServerConfig struct {
 	URL      string            `json:"url,omitempty"`
 	Headers  map[string]string `json:"headers,omitempty"`
 	Disabled bool              `json:"disabled,omitempty"`
+	// AutoApprove lists tools of this server that run without asking. Only
+	// the user grants this; what a server says about itself never does.
+	AutoApprove []string `json:"autoApprove,omitempty"`
+	// TrustReadOnlyHints lets tools the server marks read-only run
+	// without asking.
+	TrustReadOnlyHints bool `json:"trustReadOnlyHints,omitempty"`
+}
+
+// Approved reports whether the user lets a tool of this server run
+// without asking.
+func (c ServerConfig) Approved(t Tool) bool {
+	for _, name := range c.AutoApprove {
+		if name == t.Name {
+			return true
+		}
+	}
+	return c.TrustReadOnlyHints && t.Annotations.ReadOnlyHint && !t.Annotations.DestructiveHint
 }
 
 // Tool is a tool an MCP server offers.

@@ -15,6 +15,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/agent"
 	"github.com/KalonEdge/kalonide/internal/checkpoint"
 	"github.com/KalonEdge/kalonide/internal/config"
+	"github.com/KalonEdge/kalonide/internal/extend"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/prompt"
 	"github.com/KalonEdge/kalonide/internal/session"
@@ -372,6 +373,11 @@ func (sh *shell) slash(line string) (string, bool) {
 			return c.run(sh, arg)
 		}
 	}
+	// The user's own commands, from .kalonide/commands or the home folder.
+	if cmd, ok := extend.Find(sh.rt.commands(), name); ok {
+		fmt.Println(ui.Dim("/" + cmd.Name + " (" + cmd.Scope + " command)"))
+		return extend.Expand(cmd, arg), false
+	}
 	// Unique prefix match: /mo → /model is ambiguous with /models, /mode.
 	var matches []slashCmd
 	for _, c := range slashCmds {
@@ -423,6 +429,11 @@ func (sh *shell) complete(prefix string) []string {
 			out = append(out, s)
 		}
 	}
+	for _, c := range sh.rt.commands() {
+		if strings.HasPrefix("/"+c.Name, prefix) {
+			out = append(out, "/"+c.Name+" ")
+		}
+	}
 	return out
 }
 
@@ -457,6 +468,13 @@ func (sh *shell) cmdHelp(string) (string, bool) {
 			left += " " + c.args
 		}
 		fmt.Printf("  %s  %s\n", ui.Accent(fmt.Sprintf("%-30s", left)), ui.Dim(c.help))
+	}
+	if cmds := sh.rt.commands(); len(cmds) > 0 {
+		fmt.Println()
+		fmt.Println(ui.Bold("Your commands"))
+		for _, c := range cmds {
+			fmt.Printf("  %s  %s\n", ui.Accent(fmt.Sprintf("%-30s", "/"+c.Name)), ui.Dim(c.Description+" ("+c.Scope+")"))
+		}
 	}
 	fmt.Println()
 	fmt.Println(ui.Bold("Keys"))

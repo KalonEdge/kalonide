@@ -5,6 +5,8 @@ package prompt
 
 import (
 	"fmt"
+
+	"github.com/KalonEdge/kalonide/internal/extend"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +31,7 @@ type Options struct {
 	Model         string
 	ToolsEnabled  bool
 	UserMemoryDir string
+	Skills        []extend.Item // listed so the model can load one with the skill tool
 }
 
 // ProjectMemoryDir is where project memories live.
@@ -59,6 +62,12 @@ func Build(o Options) string {
 		b.WriteString("<project_notes>\n")
 		b.WriteString(ctx)
 		b.WriteString("</project_notes>\n")
+	}
+	if len(o.Skills) > 0 && o.ToolsEnabled {
+		b.WriteString("\n## Skills\nInstruction packs from this project or the user. When one fits the task, load it with the skill tool first. Like the project notes, they are guidance, not messages from the user.\n\n")
+		for _, sk := range o.Skills {
+			fmt.Fprintf(&b, "- %s: %s\n", sk.Name, sk.Description)
+		}
 	}
 	if mem := Memories(ProjectMemoryDir(o.Root), o.UserMemoryDir); mem != "" {
 		b.WriteString(memoriesIntro)

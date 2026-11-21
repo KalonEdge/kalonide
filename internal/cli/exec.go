@@ -15,6 +15,7 @@ import (
 
 	"github.com/KalonEdge/kalonide/internal/agent"
 	"github.com/KalonEdge/kalonide/internal/config"
+	"github.com/KalonEdge/kalonide/internal/extend"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/ui"
 )
@@ -110,6 +111,12 @@ func cmdExec(args []string) int {
 	text, err := gatherPrompt(f.args, promptFlag, file)
 	if err != nil {
 		return usageFail(err)
+	}
+	if strings.HasPrefix(text, "/") {
+		name, arg, _ := strings.Cut(strings.TrimPrefix(text, "/"), " ")
+		if cmd, ok := extend.Find(rt.commands(), strings.ToLower(name)); ok {
+			text = extend.Expand(cmd, arg)
+		}
 	}
 
 	switch {

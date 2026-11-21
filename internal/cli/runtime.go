@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/agent"
 	"github.com/KalonEdge/kalonide/internal/config"
 	"github.com/KalonEdge/kalonide/internal/discover"
+	"github.com/KalonEdge/kalonide/internal/extend"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/mcp"
 	"github.com/KalonEdge/kalonide/internal/prompt"
@@ -100,6 +102,10 @@ func newRuntime(o runOptions) (*runtime, error) {
 	}
 
 	reg := tools.Default()
+	skills := extend.Skills(filepath.Join(realRoot, ".kalonide"), config.Home())
+	if len(skills) > 0 {
+		reg.Add(tools.Skill{Skills: skills})
+	}
 	var mcpClients []*mcp.Client
 	var mcpWarnings []string
 	if !o.noTools {
@@ -154,7 +160,7 @@ func newRuntime(o runOptions) (*runtime, error) {
 	rt.agent.SystemPrompt = func(model string, toolsOn bool) string {
 		return prompt.Build(prompt.Options{
 			Root: env.Root, ExtraRoots: env.ExtraRoots, Model: model,
-			ToolsEnabled: toolsOn, UserMemoryDir: env.UserMemoryDir,
+			ToolsEnabled: toolsOn, UserMemoryDir: env.UserMemoryDir, Skills: skills,
 		})
 	}
 	rt.hookRetry()
@@ -439,8 +445,14 @@ func connectMCP(servers map[string]mcp.ServerConfig, reg *tools.Registry) ([]*mc
 			continue
 		}
 		clients = append(clients, r.client)
+		cfg := servers[r.name]
 		for _, t := range r.tools {
-			reg.Add(tools.MCPTool{Client: r.client, Server: r.name, Tool: t})
+			taken := func(n string) bool { _, ok := reg.Get(n); return ok }
+			reg.Add(tools.MCPTool{
+				Client: r.client, Server: r.name, Tool: t,
+				ToolName: tools.MCPToolName(r.name, t.Name, taken),
+				Trusted:  cfg.Approved(t),
+			})
 		}
 	}
 	return clients, warnings
@@ -454,3 +466,8 @@ func closeMCP(clients []*mcp.Client) {
 
 // close releases what the runtime started (MCP servers).
 func (rt *runtime) close() { closeMCP(rt.mcp) }
+
+// commands returns the user's and the project's slash commands.
+func (rt *runtime) commands() []extend.Item {
+	return extend.Commands(filepath.Join(rt.env.Root, ".kalonide"), config.Home())
+}

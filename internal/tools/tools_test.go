@@ -382,3 +382,22 @@ func TestLineDiffAndPreview(t *testing.T) {
 		t.Fatal("preview for a failing edit should be empty")
 	}
 }
+
+func TestMCPToolNamesAreUnique(t *testing.T) {
+	seen := map[string]bool{}
+	taken := func(n string) bool { return seen[n] }
+	a := MCPToolName("a", "b__c", taken)
+	seen[a] = true
+	b := MCPToolName("a__b", "c", taken) // would collide with a
+	if a == b || len(b) > 64 {
+		t.Fatalf("collision: %q %q", a, b)
+	}
+	long := MCPToolName("server", strings.Repeat("x", 80), nil)
+	long2 := MCPToolName("server", strings.Repeat("x", 79)+"y", nil)
+	if len(long) > 64 || long == long2 {
+		t.Fatalf("long names cut into a clash: %q %q", long, long2)
+	}
+	if got := MCPToolName("fs", "read", nil); got != "mcp__fs__read" {
+		t.Fatalf("plain name changed: %s", got)
+	}
+}
