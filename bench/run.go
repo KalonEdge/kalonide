@@ -28,6 +28,7 @@ type Result struct {
 	Tokens   int     `json:"tokens,omitempty"`
 	Error    string  `json:"error,omitempty"` // agent error, if any
 	Check    string  `json:"check,omitempty"` // check output when it failed
+	Reply    string  `json:"reply,omitempty"` // the agent's final answer (clipped)
 }
 
 // execOutput is the subset of `kalonide exec -o json` the bench reads.
@@ -91,6 +92,7 @@ func runTask(ag agentSpec, model string, t Task, timeout time.Duration, maxTurns
 			r.Error = out.Error
 		}
 		os.WriteFile(w.answer, []byte(out.Text), 0o644)
+		r.Reply = clip(out.Text, 2000)
 	} else if r.Error == "" && !r.TimedOut {
 		r.Error = "unreadable output: " + firstLine(stdout.String()+stderr.String())
 	}

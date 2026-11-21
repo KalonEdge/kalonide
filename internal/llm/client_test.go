@@ -306,3 +306,36 @@ func TestStallRetriesOnlyOnce(t *testing.T) {
 		t.Fatalf("kind %v attempts %d", KindOf(err), n.Load())
 	}
 }
+
+func TestLeakedMarkersAreStrippedAndLostCallsFlagged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/withcall/") {
+			sse(w, `{"choices":[{"delta":{"content":"Reading it.\n"}}]}`, `{"choices":[{"delta":{"content":"<channel|>"}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"read_file","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`)
+			return
+		}
+		sse(w, `{"choices":[{"delta":{"content":"I will read port.go.\n"}}]}`, `{"choices":[{"delta":{"content":"<channel|>"}}]}`,
+			`{"choices":[{"delta":{"content":"\n"},"finish_reason":"stop"}]}`)
+	}))
+	defer srv.Close()
+	var shown strings.Builder
+	resp, err := New(srv.URL, "", nil).Chat(context.Background(), Request{}, func(d Delta) { shown.WriteString(d.Content) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(resp.Content, "channel") || strings.Contains(shown.String(), "channel") || !resp.ToolCallLost {
+		t.Fatalf("content %q shown %q lost %v", resp.Content, shown.String(), resp.ToolCallLost)
+	}
+	resp, _ = New(srv.URL+"/withcall", "", nil).Chat(context.Background(), Request{}, nil)
+	if resp == nil || resp.ToolCallLost || len(resp.ToolCalls) != 1 {
+		t.Fatalf("a delivered call must not be flagged lost: %+v", resp)
+	}
+	for in, want := range map[string]string{
+		"a<|im_end|>b": "ab", "x<end_of_turn>": "x", "<|channel>t": "t", "keep <tool_call>{}</tool_call>": "keep <tool_call>{}</tool_call>",
+		"Array<string|number>": "Array<string|number>", "if a < b || c > d": "if a < b || c > d",
+	} {
+		if got, _ := stripMarkers(in); got != want {
+			t.Errorf("stripMarkers(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

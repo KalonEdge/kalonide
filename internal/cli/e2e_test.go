@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeModel is a scripted OpenAI-compatible server. It decides its reply
@@ -266,5 +267,42 @@ func TestShellNeedsTerminal(t *testing.T) {
 	r := kalonide(t, env, work)
 	if r.code != 2 || !strings.Contains(r.stderr, "needs a terminal") {
 		t.Fatalf("%d %s", r.code, r.stderr)
+	}
+}
+
+func TestExecDoesNotWaitOnIdleStdin(t *testing.T) {
+	env, work := setup(t)
+	r, w, err := os.Pipe() // open, but nothing is ever written
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	cmd := exec.Command(binPath, "exec", "hello")
+	cmd.Dir, cmd.Stdin = work, r
+	cmd.Env = append(append(os.Environ(), env...), "NO_COLOR=1")
+	done := make(chan error, 1)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil || !strings.Contains(out.String(), "echo: hello") {
+			t.Fatalf("err %v out %q", err, out.String())
+		}
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("exec hung waiting on an idle stdin")
+	}
+
+	// Piped input that does arrive is still used alongside the prompt.
+	cmd = exec.Command(binPath, "exec", "summarize")
+	cmd.Dir, cmd.Stdin = work, strings.NewReader("piped text")
+	cmd.Env = append(append(os.Environ(), env...), "NO_COLOR=1")
+	b, _ := cmd.Output()
+	if !strings.Contains(string(b), "piped text") {
+		t.Fatalf("piped input lost: %q", b)
 	}
 }

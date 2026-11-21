@@ -117,12 +117,13 @@ func parseCallBlob(blob string, reg *tools.Registry) []llm.ToolCall {
 	return []llm.ToolCall{{Function: llm.FunctionCall{Name: name, Arguments: argStr}}}
 }
 
-// futureStep matches a reply that ends by announcing an action instead of
-// taking it: "Now I will run go test", "Let me check the file:".
-var futureStep = regexp.MustCompile(`(?i)(?:\b(?:now|next),?\s+i(?:'ll| will| am going to|'m going to)\b|\bi(?:'ll| will) now\b|\blet me\b|\bi(?:'m| am) going to\b)[^.!?\n]*[.:]?\s*$`)
+// futureStep matches a final paragraph that announces an action instead of
+// taking it: "Now I will run go test", "I will start by listing the
+// directory", "Calling grep now", "Let me check the file:".
+var futureStep = regexp.MustCompile(`(?i)\b(?:i(?:'ll| will| need to| shall| am going to|'m going to| am about to|'m about to)|let(?:'s| me)|calling|(?:now|next|first|then),? (?:i|let)\b|(?:first|next|now),)`)
 
 // signOff matches closing offers that are not promised steps.
-var signOff = regexp.MustCompile(`(?i)\blet me know\b|\bif you(?:'d| would)? like\b|\bwant me to\b`)
+var signOff = regexp.MustCompile(`(?i)\blet me know\b|\bif you(?:'d| would)? (?:like|want|prefer)\b|\bwant me to\b|\bfeel free\b|\bi can also\b`)
 
 // announcesNextStep reports whether the final paragraph of a reply
 // promises a next step it did not take.

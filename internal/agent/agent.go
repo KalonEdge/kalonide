@@ -69,6 +69,10 @@ type Result struct {
 	Usage llm.Usage
 }
 
+// maxNudges bounds how often one run asks the model to carry on after it
+// stopped mid-task (a dropped tool call or an announced but untaken step).
+const maxNudges = 3
+
 // ErrMaxTurns is returned when the turn limit is reached.
 var ErrMaxTurns = errors.New("stopped: reached the turn limit")
 
@@ -162,8 +166,8 @@ func (a *Agent) Run(ctx context.Context, input string) (*Result, error) {
 	res := &Result{}
 	var ladder compactLadder
 	continuations := 0
-	nudged := false
-	promised := false
+	nudged := false // empty-reply nudge used
+	nudges := 0     // "you stopped mid-task" nudges used
 	failures := map[string]int{}
 
 	for res.Turns < a.maxTurns() {
@@ -205,15 +209,22 @@ func (a *Agent) Run(ctx context.Context, input string) (*Result, error) {
 				a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "Your reply was cut off by the output limit. Continue exactly where you stopped. Do not repeat anything."})
 				continue
 			}
+			if a.toolsOn() && resp.ToolCallLost && nudges < maxNudges {
+				// The server dropped a tool call the model was making.
+				nudges++
+				a.sink().Notice("the model's tool call was lost by the server; asking it to send it again")
+				a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "Your tool call did not come through: the reply ended before it was sent. Make the call again now, using the tool-calling interface."})
+				continue
+			}
 			if strings.TrimSpace(content) == "" && !nudged {
 				nudged = true
 				a.Messages = a.Messages[:len(a.Messages)-1]
 				a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "Your last reply was empty. Please answer or continue the task."})
 				continue
 			}
-			if a.toolsOn() && !promised && announcesNextStep(content) {
+			if a.toolsOn() && nudges < maxNudges && announcesNextStep(content) {
 				// Small models often say "now I will run the tests" and stop.
-				promised = true
+				nudges++
 				a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "You said what you will do next but did not do it. Do it now with the tools, then report the result."})
 				continue
 			}

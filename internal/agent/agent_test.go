@@ -366,31 +366,63 @@ func (noteSink) ToolStart(string, string, string)     {}
 func (noteSink) ToolEnd(string, string, string, bool) {}
 func (n noteSink) Notice(s string)                    { *n.notes = append(*n.notes, s) }
 
-func TestAnnouncedButUntakenStepIsNudgedOnce(t *testing.T) {
+func TestAnnouncedButUntakenStepIsNudged(t *testing.T) {
 	a, s := newAgent(t,
 		text("I have edited mathx.go. Now I will run go test again to confirm the fix."),
 		call("list_directory", map[string]string{}),
-		text("Let me check one more thing:"),
+		text("Done: the tests pass."),
 	)
 	res, err := a.Run(context.Background(), "fix it")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// One nudge only: the second announcement is accepted as final.
-	if res.Turns != 3 || len(s.steps) != 0 || !strings.Contains(res.Text, "Let me check") {
+	if res.Turns != 3 || len(s.steps) != 0 || res.Text != "Done: the tests pass." {
 		t.Fatalf("%+v", res)
 	}
-	for _, m := range a.Messages {
-		if m.Role == llm.RoleUser && strings.Contains(m.Content, "did not do it") {
-			return
-		}
+}
+
+func TestNudgesAreCapped(t *testing.T) {
+	announce := text("I will start by listing the directory.")
+	a, s := newAgent(t, announce, announce, announce, announce)
+	res, err := a.Run(context.Background(), "fix it")
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Fatal("no nudge sent")
+	// Three nudges, then the fourth announcement is accepted as final.
+	if res.Turns != 1+maxNudges || len(s.steps) != 0 || res.Stop != StopDone {
+		t.Fatalf("turns %d left %d %+v", res.Turns, len(s.steps), res)
+	}
+}
+
+func TestLostToolCallIsRetried(t *testing.T) {
+	a, s := newAgent(t,
+		step{resp: &llm.Response{Content: "Let me read the file.", FinishReason: "stop", ToolCallLost: true}},
+		call("list_directory", map[string]string{}),
+		text("ok"),
+	)
+	var notes []string
+	a.Sink = noteSink{&notes}
+	res, err := a.Run(context.Background(), "x")
+	if err != nil || res.Text != "ok" || len(s.steps) != 0 || len(notes) != 1 {
+		t.Fatalf("%+v %v notes=%v", res, err, notes)
+	}
+	if !strings.Contains(a.Messages[2].Content, "did not come through") {
+		t.Fatalf("wrong nudge: %q", a.Messages[2].Content)
+	}
 }
 
 func TestAnnouncesNextStep(t *testing.T) {
-	yes := []string{"Done editing.\n\nNow I will run the tests.", "Let me look at the config file:", "I'll now apply the fix", "Next, I'm going to update the docs."}
-	no := []string{"I fixed the loop and the tests pass.", "Let me know if you want more changes.", "", "The bug was in line 9. I changed it and confirmed with go test."}
+	yes := []string{
+		"Done editing.\n\nNow I will run the tests.", "Let me look at the config file:", "I'll now apply the fix",
+		"Next, I'm going to update the docs.", "I will start by listing the directory to get an overview.",
+		"I will use `grep` for this.", "Calling `grep` now.", "First, valid port:", "I need to read port.go first.",
+	}
+	no := []string{
+		"I fixed the loop and the tests pass.", "Let me know if you want more changes.", "",
+		"The bug was in line 9. I changed it and confirmed with go test.",
+		"It listens on port 8087 by default; set DASH_LISTEN_PORT to change it.", "internal/conf/load.go",
+		"All done. If you want, I can also add tests.",
+	}
 	for _, s := range yes {
 		if !announcesNextStep(s) {
 			t.Errorf("missed: %q", s)

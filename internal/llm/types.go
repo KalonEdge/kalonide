@@ -67,8 +67,12 @@ type Usage struct {
 
 // Response is a completed (possibly streamed) model reply.
 type Response struct {
-	Content      string
-	Reasoning    string
+	Content   string
+	Reasoning string
+	// ToolCallLost is set when the reply ended right after a leaked control
+	// token with no tool call: the model was starting a tool call that the
+	// server failed to deliver.
+	ToolCallLost bool
 	ToolCalls    []ToolCall
 	FinishReason string
 	Usage        Usage

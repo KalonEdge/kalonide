@@ -2,7 +2,7 @@ VERSION ?= $(shell date +%Y.%m.%d)-dev
 LDFLAGS := -s -w -X github.com/KalonEdge/kalonide/internal/version.Version=$(VERSION)
 PREFIX  ?= /usr/local
 
-.PHONY: build test race vet install clean bench bench-validate
+.PHONY: build test race vet install clean bench bench-validate shell-check
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o kalonide ./cmd/kalonide
@@ -27,6 +27,9 @@ bench: build
 
 bench-validate:
 	go run ./bench -validate
+
+shell-check: build
+	python3 -I scripts/shell_checks.py ./kalonide
 
 clean:
 	go clean

@@ -356,6 +356,9 @@ type assembler struct {
 	split thinkSplitter
 	calls []*ToolCall
 	emit  func(Delta)
+	// markerAtEnd: a control token was stripped and nothing but whitespace
+	// has followed it.
+	markerAtEnd bool
 }
 
 func (a *assembler) addMessage(m wireMessage) {
@@ -369,6 +372,7 @@ func (a *assembler) addMessage(m wireMessage) {
 			a.think.WriteString(reasoning)
 			a.emit(Delta{Reasoning: reasoning})
 		}
+		content = a.noteMarkers(content)
 		if content != "" {
 			a.text.WriteString(content)
 			a.emit(Delta{Content: content})
@@ -416,6 +420,7 @@ func (a *assembler) addToolCall(tc wireToolCall) {
 
 func (a *assembler) finish() *Response {
 	content, reasoning := a.split.flush()
+	content = a.noteMarkers(content)
 	if reasoning != "" {
 		a.think.WriteString(reasoning)
 		a.emit(Delta{Reasoning: reasoning})
@@ -426,6 +431,9 @@ func (a *assembler) finish() *Response {
 	}
 	a.resp.Content = a.text.String()
 	a.resp.Reasoning = a.think.String()
+	defer func() {
+		a.resp.ToolCallLost = a.markerAtEnd && len(a.resp.ToolCalls) == 0 && a.resp.FinishReason != "length"
+	}()
 	n := 0
 	for _, c := range a.calls {
 		if c == nil || c.Function.Name == "" {

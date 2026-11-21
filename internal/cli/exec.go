@@ -190,14 +190,11 @@ func gatherPrompt(args []string, flagText, file string) (string, error) {
 		}
 		parts = append(parts, string(data))
 	}
-	if !ui.IsTerminal(os.Stdin) {
-		data, err := io.ReadAll(io.LimitReader(os.Stdin, 8<<20))
-		if err == nil && strings.TrimSpace(string(data)) != "" {
-			if len(parts) > 0 {
-				parts = append(parts, "Input:\n"+string(data))
-			} else {
-				parts = append(parts, string(data))
-			}
+	if data := readStdin(len(parts) > 0); strings.TrimSpace(data) != "" {
+		if len(parts) > 0 {
+			parts = append(parts, "Input:\n"+data)
+		} else {
+			parts = append(parts, data)
 		}
 	}
 	text := strings.TrimSpace(strings.Join(parts, "\n\n"))
@@ -405,4 +402,36 @@ func fail(err error) int {
 func usageFail(err error) int {
 	fmt.Fprintln(os.Stderr, "kalonide: "+err.Error())
 	return exitUsage
+}
+
+// readStdin returns piped input. When the prompt already came from the
+// command line, stdin is optional, and many tool runners leave it open
+// without ever writing to it: in that case wait briefly for the first
+// bytes and move on if none arrive, instead of blocking forever.
+func readStdin(optional bool) string {
+	const limit = 8 << 20
+	if ui.IsTerminal(os.Stdin) {
+		return ""
+	}
+	st, err := os.Stdin.Stat()
+	if !optional || (err == nil && st.Mode().IsRegular()) {
+		data, _ := io.ReadAll(io.LimitReader(os.Stdin, limit))
+		return string(data)
+	}
+	first := make(chan []byte, 1)
+	go func() {
+		buf := make([]byte, 64<<10)
+		n, _ := os.Stdin.Read(buf)
+		first <- buf[:n]
+	}()
+	select {
+	case head := <-first:
+		if len(head) == 0 {
+			return ""
+		}
+		rest, _ := io.ReadAll(io.LimitReader(os.Stdin, limit-int64(len(head))))
+		return string(head) + string(rest)
+	case <-time.After(500 * time.Millisecond):
+		return ""
+	}
 }
