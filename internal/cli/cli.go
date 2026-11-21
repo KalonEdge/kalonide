@@ -726,7 +726,7 @@ func cmdSessions(args []string) int {
 			case e.Failed:
 				mark = ui.Red("✘")
 			}
-			fmt.Printf("%s %s %-14s %-20s %s\n", e.Time.Format("15:04:05"), mark, e.Tool, ui.Dim(e.Decision), ui.Sanitize(clipText(e.Summary, 80)))
+			fmt.Printf("%s %s %-14s %-20s %s\n", e.Time.Format("15:04:05"), mark, ui.Sanitize(e.Tool), ui.Dim(ui.Sanitize(e.Decision)), ui.Sanitize(clipText(e.Summary, 80)))
 		}
 		return exitOK
 	case "rm", "delete":

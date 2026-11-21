@@ -122,7 +122,10 @@ func newRuntime(o runOptions) (*runtime, error) {
 	task := &agent.TaskTool{}
 	reg.Add(task)
 	extras := prompt.ProjectExtras(realRoot)
-	trusted := len(extras) == 0 || s.Trusts(realRoot) || o.trust || os.Getenv("KALONIDE_TRUST") == "1"
+	// Trust is explicit only: saved, --trust, or the user's yes this session.
+	// A folder with nothing to trust is not trusted either, so files that
+	// appear later (even ones the agent wrote) need approval first.
+	trusted := s.Trusts(realRoot) || o.trust || os.Getenv("KALONIDE_TRUST") == "1"
 	var mcpClients []*mcp.Client
 	var mcpWarnings []string
 	if !o.noTools {

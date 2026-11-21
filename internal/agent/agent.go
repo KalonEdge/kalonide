@@ -51,6 +51,7 @@ func (a *Agent) audit(e AuditEntry) {
 		return
 	}
 	e.Time = time.Now()
+	e.Tool = safeName(e.Tool) // an unknown tool's name comes from the model
 	if len(e.Summary) > 500 {
 		e.Summary = e.Summary[:500] + "…"
 	}
@@ -606,4 +607,16 @@ func (a *Agent) ToolsOn() bool { return a.toolsOn() }
 func (a *Agent) Reset() {
 	a.Messages = nil
 	a.Usage = llm.Usage{}
+}
+
+// safeName keeps a tool name to the characters tool names use, at most 64.
+func safeName(s string) string {
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s) && len(b) < 64; i++ {
+		c := s[i]
+		if c == '_' || c == '-' || c == '.' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			b = append(b, c)
+		}
+	}
+	return string(b)
 }

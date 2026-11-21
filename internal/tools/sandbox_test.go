@@ -113,3 +113,19 @@ func TestSandboxBlocksEscapes(t *testing.T) {
 		t.Fatalf("SSH agent socket passed into the sandbox: %s", out)
 	}
 }
+
+func TestSandboxGitDirCannotBeSwapped(t *testing.T) {
+	if ok, _ := sandbox.Available(); !ok || runtime.GOOS != "darwin" {
+		t.Skip("needs macOS sandbox-exec")
+	}
+	env := newEnv(t)
+	RunCommand(context.Background(), env.Root, "git init -q .", time.Minute, nil)
+	policy := &sandbox.Policy{Writable: []string{env.Root}}
+	out, _ := RunCommand(context.Background(), env.Root, "mv .git .git-old; mkdir -p evil/hooks; echo 'echo pwned' > .git/hooks/post-checkout; ls -d .git", time.Minute, policy)
+	if _, err := os.Stat(filepath.Join(env.Root, ".git-old")); err == nil {
+		t.Fatalf(".git was moved from the sandbox: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(env.Root, ".git", "HEAD")); err != nil {
+		t.Fatalf(".git damaged: %s", out)
+	}
+}

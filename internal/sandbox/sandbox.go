@@ -112,14 +112,19 @@ func macProfile(p Policy) string {
 	}
 	b.WriteString(")\n")
 	// Files that run code later, outside the sandbox, when the user uses
-	// git: keep them read-only (commits still work).
-	b.WriteString("(deny file-write*")
-	for _, root := range p.Writable {
-		for _, rel := range []string{".git/hooks", ".git/config", ".git/info"} {
-			b.WriteString(" (subpath " + sbString(filepath.Join(root, rel)) + ")")
+	// git: keep them read-only (commits still work), and keep .git itself
+	// from being replaced. gitProtected returns real paths, which is what
+	// the sandbox matches against.
+	if lit, subs := gitProtected(p.Writable); len(lit)+len(subs) > 0 {
+		b.WriteString("(deny file-write*")
+		for _, l := range lit {
+			b.WriteString(" (literal " + sbString(l) + ")")
 		}
+		for _, d := range subs {
+			b.WriteString(" (subpath " + sbString(d) + ")")
+		}
+		b.WriteString(")\n")
 	}
-	b.WriteString(")\n")
 	// No escaping through other apps: Apple Events (Terminal, System
 	// Events), opening apps, or the tools that do those things.
 	b.WriteString("(deny appleevent-send)(deny lsopen)\n")
@@ -132,10 +137,13 @@ func macProfile(p Policy) string {
 	} else {
 		b.WriteString(` (remote ip "localhost:*")`)
 	}
-	for _, d := range dirs {
-		if d != "/dev" {
-			b.WriteString(" (remote unix-socket (subpath " + sbString(d) + "))")
+	// Unix sockets only inside the workspace: shared temp folders hold
+	// other programs' sockets.
+	for _, d := range p.Writable {
+		if real, err := filepath.EvalSymlinks(d); err == nil {
+			d = real
 		}
+		b.WriteString(" (remote unix-socket (subpath " + sbString(d) + "))")
 	}
 	b.WriteString(")\n")
 	return b.String()
@@ -154,11 +162,13 @@ func bwrapArgs(tool string, p Policy) []string {
 			args = append(args, "--bind", d, d)
 		}
 	}
-	for _, root := range p.Writable {
-		for _, rel := range []string{".git/hooks", ".git/config", ".git/info"} {
-			if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
-				args = append(args, "--ro-bind", filepath.Join(root, rel), filepath.Join(root, rel))
-			}
+	_, subs := gitProtected(p.Writable)
+	for _, d := range subs {
+		if strings.HasSuffix(d, "/hooks") {
+			_ = os.MkdirAll(d, 0o755) // so it can be bound read-only
+		}
+		if _, err := os.Stat(d); err == nil {
+			args = append(args, "--ro-bind", d, d)
 		}
 	}
 	if !p.Network {
@@ -180,4 +190,55 @@ func Env(env []string) []string {
 		out = append(out, kv)
 	}
 	return out
+}
+
+// gitProtected returns, for each root that is a git checkout, the paths a
+// sandboxed command must not write: the .git entry itself (so it cannot be
+// swapped for another), and the parts of the real git folder that run or
+// configure code (hooks, config, info, modules, worktrees). It follows a
+// .git file (worktrees, submodules) to the real and the shared git folder.
+func gitProtected(roots []string) (literals, subpaths []string) {
+	protect := func(gitDir string) {
+		for _, rel := range []string{"hooks", "config", "info", "modules", "worktrees", "commondir"} {
+			subpaths = append(subpaths, filepath.Join(gitDir, rel))
+		}
+	}
+	for _, root := range roots {
+		if real, err := filepath.EvalSymlinks(root); err == nil {
+			root = real
+		}
+		dotGit := filepath.Join(root, ".git")
+		info, err := os.Lstat(dotGit)
+		if err != nil {
+			continue
+		}
+		literals = append(literals, dotGit)
+		if info.IsDir() {
+			protect(dotGit)
+			continue
+		}
+		data, err := os.ReadFile(dotGit)
+		if err != nil {
+			continue
+		}
+		gitDir := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(data)), "gitdir:"))
+		if gitDir == "" {
+			continue
+		}
+		if !filepath.IsAbs(gitDir) {
+			gitDir = filepath.Join(root, gitDir)
+		}
+		if real, err := filepath.EvalSymlinks(gitDir); err == nil {
+			gitDir = real
+		}
+		protect(gitDir)
+		if c, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+			common := strings.TrimSpace(string(c))
+			if !filepath.IsAbs(common) {
+				common = filepath.Join(gitDir, common)
+			}
+			protect(filepath.Clean(common))
+		}
+	}
+	return literals, subpaths
 }
