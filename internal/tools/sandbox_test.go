@@ -129,3 +129,15 @@ func TestSandboxGitDirCannotBeSwapped(t *testing.T) {
 		t.Fatalf(".git damaged: %s", out)
 	}
 }
+
+func TestSandboxCannotCreateGitRepo(t *testing.T) {
+	if ok, _ := sandbox.Available(); !ok || runtime.GOOS != "darwin" {
+		t.Skip("needs macOS sandbox-exec")
+	}
+	env := newEnv(t)
+	policy := &sandbox.Policy{Writable: []string{env.Root}}
+	out, _ := RunCommand(context.Background(), env.Root, "mkdir -p .git/hooks && echo 'echo pwned' > .git/hooks/post-checkout; git init -q . ; echo done", time.Minute, policy)
+	if _, err := os.Stat(filepath.Join(env.Root, ".git")); err == nil {
+		t.Fatalf("a .git folder was created from the sandbox: %s", out)
+	}
+}

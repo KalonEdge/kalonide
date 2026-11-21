@@ -40,6 +40,9 @@ Commands:
   verify      Run the project's own build, lint and test commands
   repo-map    Outline the codebase: files and their top-level declarations
   trust       Let a folder's own notes, memories, skills and commands guide the agent
+  changes     Show git changes; changes commit [-m msg | --auto] commits them
+  search      Search past sessions
+  usage       Sessions, requests and tokens per day and model
   sessions    List, show or delete saved sessions
   init        Write a KALONIDE.md guide for the current project
   version     Print the version
@@ -85,6 +88,12 @@ func Main(args []string) int {
 			return cmdVerify(args[1:])
 		case "repo-map":
 			return cmdRepoMap(args[1:])
+		case "changes":
+			return cmdChanges(args[1:])
+		case "search", "find":
+			return cmdSearch(args[1:])
+		case "usage":
+			return cmdUsage(args[1:])
 		case "trust":
 			return cmdTrust(args[1:], true)
 		case "untrust":

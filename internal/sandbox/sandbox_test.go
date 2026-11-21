@@ -31,7 +31,11 @@ func TestGitProtectedFollowsWorktreesAndRealPaths(t *testing.T) {
 			t.Fatalf("path not resolved to its real location: %s", p)
 		}
 	}
-	if l, s := gitProtected([]string{t.TempDir()}); len(l)+len(s) != 0 {
-		t.Fatal("a folder without git has protected paths")
+	// A folder without git is protected too, so no repository (and no
+	// hook) can be created in it from the sandbox.
+	plain := t.TempDir()
+	l, s := gitProtected([]string{plain})
+	if len(l) != 1 || !strings.HasSuffix(l[0], "/.git") || !strings.Contains(strings.Join(s, " "), "/.git/hooks") {
+		t.Fatalf("folder without git: %v %v", l, s)
 	}
 }

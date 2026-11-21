@@ -519,3 +519,42 @@ func TestAuditLog(t *testing.T) {
 		t.Fatalf("audit files must not show up as sessions: %d", len(sessions))
 	}
 }
+
+func TestChangesSearchUsage(t *testing.T) {
+	env, work := setup(t)
+	gitc := func(args ...string) string {
+		out, _ := exec.Command("git", append([]string{"-C", work, "-c", "user.email=a@b", "-c", "user.name=a"}, args...)...).CombinedOutput()
+		return string(out)
+	}
+	gitc("init", "-q")
+	os.WriteFile(filepath.Join(work, "a.txt"), []byte("one\n"), 0o644)
+	if r := kalonide(t, env, work, "changes"); !strings.Contains(r.stdout, "a.txt") {
+		t.Fatalf("changes: %s %s", r.stdout, r.stderr)
+	}
+	if r := kalonide(t, env, work, "changes", "commit"); r.code != 2 {
+		t.Fatal("commit without a message accepted")
+	}
+	r := kalonide(t, env, work, "changes", "commit", "-m", "Add a")
+	if r.code != 0 || !strings.Contains(gitc("log", "--oneline"), "Add a") {
+		t.Fatalf("commit -m: %s %s", r.stdout, r.stderr)
+	}
+	os.WriteFile(filepath.Join(work, "b.txt"), []byte("two\n"), 0o644)
+	gitEnv := append(env, "GIT_AUTHOR_NAME=a", "GIT_AUTHOR_EMAIL=a@b", "GIT_COMMITTER_NAME=a", "GIT_COMMITTER_EMAIL=a@b")
+	r = kalonide(t, gitEnv, work, "changes", "commit", "--auto", "--yes")
+	if r.code != 0 || !strings.Contains(gitc("log", "-1", "--format=%s"), "echo:") {
+		t.Fatalf("commit --auto: %d %s %s", r.code, r.stdout, r.stderr)
+	}
+
+	kalonide(t, env, work, "exec", "please remember the purple elephant")
+	r = kalonide(t, env, work, "search", "purple", "elephant")
+	if r.code != 0 || !strings.Contains(r.stdout, "purple elephant") {
+		t.Fatalf("search: %s %s", r.stdout, r.stderr)
+	}
+	if r := kalonide(t, env, work, "search", "nothing-matches-this"); !strings.Contains(r.stdout, "No matches") {
+		t.Fatalf("search miss: %s", r.stdout)
+	}
+	r = kalonide(t, env, work, "usage")
+	if r.code != 0 || !strings.Contains(r.stdout, "fake-coder") || !strings.Contains(r.stdout, "~") {
+		t.Fatalf("usage: %s %s", r.stdout, r.stderr)
+	}
+}

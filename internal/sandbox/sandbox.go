@@ -1,7 +1,8 @@
 // Package sandbox confines shell commands the agent runs: writes only to
 // the workspace, temp folders and build caches, and no network beyond
 // this machine unless allowed. It uses macOS's sandbox-exec, or bwrap
-// (bubblewrap) on Linux when installed.
+// (bubblewrap) on Linux when installed. The Linux path is experimental:
+// it is built to the same rules but has not been verified on Linux.
 package sandbox
 
 import (
@@ -162,11 +163,18 @@ func bwrapArgs(tool string, p Policy) []string {
 			args = append(args, "--bind", d, d)
 		}
 	}
-	_, subs := gitProtected(p.Writable)
-	for _, d := range subs {
-		if strings.HasSuffix(d, "/hooks") {
-			_ = os.MkdirAll(d, 0o755) // so it can be bound read-only
+	// Git: make each existing .git directory a mount point (a mount point
+	// cannot be renamed away), then bind its code-running parts read-only.
+	// Missing hooks/info folders are created first so they can be locked.
+	lits, subs := gitProtected(p.Writable)
+	for _, g := range lits {
+		if info, err := os.Lstat(g); err == nil && info.IsDir() {
+			args = append(args, "--bind", g, g)
+			_ = os.MkdirAll(filepath.Join(g, "hooks"), 0o755)
+			_ = os.MkdirAll(filepath.Join(g, "info"), 0o755)
 		}
+	}
+	for _, d := range subs {
 		if _, err := os.Stat(d); err == nil {
 			args = append(args, "--ro-bind", d, d)
 		}
@@ -192,11 +200,12 @@ func Env(env []string) []string {
 	return out
 }
 
-// gitProtected returns, for each root that is a git checkout, the paths a
-// sandboxed command must not write: the .git entry itself (so it cannot be
-// swapped for another), and the parts of the real git folder that run or
-// configure code (hooks, config, info, modules, worktrees). It follows a
-// .git file (worktrees, submodules) to the real and the shared git folder.
+// gitProtected returns, for each root, the paths a sandboxed command must
+// not write, whether or not they exist yet: the .git entry itself (so it
+// cannot be created, removed or swapped) and the parts that run or
+// configure code (hooks, config, info, modules, worktrees, commondir). It
+// follows a .git file (worktrees, submodules) to the real and the shared
+// git folder. All paths are real paths, which is what macOS matches.
 func gitProtected(roots []string) (literals, subpaths []string) {
 	protect := func(gitDir string) {
 		for _, rel := range []string{"hooks", "config", "info", "modules", "worktrees", "commondir"} {
@@ -208,15 +217,13 @@ func gitProtected(roots []string) (literals, subpaths []string) {
 			root = real
 		}
 		dotGit := filepath.Join(root, ".git")
-		info, err := os.Lstat(dotGit)
-		if err != nil {
-			continue
-		}
 		literals = append(literals, dotGit)
-		if info.IsDir() {
-			protect(dotGit)
+		protect(dotGit)
+		info, err := os.Lstat(dotGit)
+		if err != nil || info.IsDir() {
 			continue
 		}
+		// A .git file points at the real git folder.
 		data, err := os.ReadFile(dotGit)
 		if err != nil {
 			continue
@@ -237,7 +244,10 @@ func gitProtected(roots []string) (literals, subpaths []string) {
 			if !filepath.IsAbs(common) {
 				common = filepath.Join(gitDir, common)
 			}
-			protect(filepath.Clean(common))
+			if real, err := filepath.EvalSymlinks(common); err == nil {
+				common = real
+			}
+			protect(common)
 		}
 	}
 	return literals, subpaths

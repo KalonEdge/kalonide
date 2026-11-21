@@ -61,6 +61,7 @@ func init() {
 		{"clear", "", "Same as /new, and clear the screen", (*shell).cmdClear},
 		{"resume", "[id]", "Continue a saved session", (*shell).cmdResume},
 		{"sessions", "", "List saved sessions for this folder", (*shell).cmdSessions},
+		{"search", "<words>", "Search past sessions in this folder", (*shell).cmdSearch},
 		{"undo", "", "Undo the file changes of the last request", (*shell).cmdUndo},
 		{"rewind", "", "Go back to before an earlier request, files and conversation", (*shell).cmdRewind},
 		{"compact", "", "Summarize the conversation to free context", (*shell).cmdCompact},
@@ -1056,4 +1057,18 @@ func (sh *shell) askTrust() {
 		fmt.Println(ui.Red("! ") + err.Error())
 	}
 	fmt.Println()
+}
+
+func (sh *shell) cmdSearch(arg string) (string, bool) {
+	hits, err := searchSessions(sh.rt.store, arg, sh.rt.env.Root, 20)
+	switch {
+	case err != nil:
+		fmt.Println(ui.Yellow("! ") + "usage: /search <words>")
+	case len(hits) == 0:
+		fmt.Println(ui.Dim("No matches in this folder's sessions."))
+	default:
+		printHits(hits)
+	}
+	fmt.Println()
+	return "", false
 }

@@ -65,7 +65,10 @@ Commands: `/model` (live picker), `/models`, `/provider`, `/mode`, `/new`,
   sandbox (macOS `sandbox-exec`, or bubblewrap on Linux): writes only in
   the workspace, temp folders and build caches; network only to this
   machine (`sandboxNetwork` to allow more); no AppleScript or `open`; no
-  Docker or SSH-agent sockets; `.git/hooks` and `.git/config` read-only.
+  Docker or SSH-agent sockets; `.git` cannot be created, replaced or have
+  its hooks or config changed (so `git init` is yours to run; commits
+  work). The Linux (bubblewrap) sandbox is experimental and not yet
+  verified on Linux.
   Package caches stay writable for builds (Go and npm verify their
   contents). `/sandbox` shows the current state.
 - A folder's own `KALONIDE.md`, `AGENTS.md`, memories, skills and commands
