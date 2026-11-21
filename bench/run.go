@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -110,4 +111,10 @@ func clip(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// serverGone reports whether a run failed because the model server could
+// not be reached, rather than because of the agent's work.
+func serverGone(r Result) bool {
+	return !r.Passed && r.Tools == 0 && strings.Contains(r.Error, "cannot reach")
 }

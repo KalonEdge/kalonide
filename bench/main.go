@@ -80,8 +80,13 @@ func main() {
 			for i := 0; i < *repeat; i++ {
 				for _, t := range tasks {
 					r := runTask(ag, model, t, *timeout, *turns)
-					run.Results = append(run.Results, r)
 					printResult(r)
+					if serverGone(r) {
+						// Every later run would fail the same way and the scores
+						// would mean nothing: stop without saving anything.
+						fail(fmt.Errorf("the model server stopped answering during %s; nothing was saved. Start it again and re-run", t.ID))
+					}
+					run.Results = append(run.Results, r)
 				}
 			}
 		}
