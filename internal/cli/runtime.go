@@ -39,6 +39,7 @@ type runOptions struct {
 	maxTurns  int
 	mode      string
 	selfCheck bool
+	trust     bool
 }
 
 func (o *runOptions) register(f *flagSet) {
@@ -52,6 +53,7 @@ func (o *runOptions) register(f *flagSet) {
 	f.List(&o.fallbacks, "<models>", "Fall back to these models when the model is overloaded", "fallback-models")
 	f.Int(&o.maxTurns, "<n>", "Maximum model calls per prompt", "max-turns")
 	f.Bool(&o.selfCheck, "Run the project's checks before finishing, and fix failures", "self-check")
+	f.Bool(&o.trust, "Use this folder's notes, memories, skills and commands even if not trusted", "trust")
 }
 
 // runtime is everything a session needs, wired together.
@@ -69,7 +71,10 @@ type runtime struct {
 	warnings []string      // problems to show the user once, e.g. an MCP server that failed
 	hooks    *hooks.Runner // nil when no hooks are configured
 
-	interactive bool          // a person can approve actions (the shell)
+	interactive bool     // a person can approve actions (the shell)
+	trusted     bool     // the workspace's own notes, memories, skills and commands may be used
+	extras      []string // what the workspace has of those (for the trust question)
+	skills      []extend.Item
 	modeNow     func() string // the current permission mode; the shell's can change
 }
 
@@ -115,10 +120,8 @@ func newRuntime(o runOptions) (*runtime, error) {
 	reg.Add(tools.Verify{Root: realRoot}) // replaces the default, naming real commands
 	task := &agent.TaskTool{}
 	reg.Add(task)
-	skills := extend.Skills(filepath.Join(realRoot, ".kalonide"), config.Home())
-	if len(skills) > 0 {
-		reg.Add(tools.Skill{Skills: skills})
-	}
+	extras := prompt.ProjectExtras(realRoot)
+	trusted := len(extras) == 0 || s.Trusts(realRoot) || o.trust || os.Getenv("KALONIDE_TRUST") == "1"
 	var mcpClients []*mcp.Client
 	var mcpWarnings []string
 	if !o.noTools {
@@ -141,7 +144,10 @@ func newRuntime(o runOptions) (*runtime, error) {
 		mode:     s.PermissionMode,
 		mcp:      mcpClients,
 		warnings: mcpWarnings,
+		trusted:  trusted,
+		extras:   extras,
 	}
+	rt.loadSkills()
 	if v := os.Getenv("KALONIDE_PERMISSION_MODE"); v != "" {
 		rt.mode = v
 	}
@@ -194,7 +200,8 @@ func newRuntime(o runOptions) (*runtime, error) {
 	rt.agent.SystemPrompt = func(model string, toolsOn bool) string {
 		return prompt.Build(prompt.Options{
 			Root: env.Root, ExtraRoots: env.ExtraRoots, Model: model,
-			ToolsEnabled: toolsOn, UserMemoryDir: env.UserMemoryDir, Skills: skills,
+			ToolsEnabled: toolsOn, UserMemoryDir: env.UserMemoryDir, Skills: rt.skills,
+			IncludeProject: rt.trusted,
 		})
 	}
 	rt.hookRetry()
@@ -505,9 +512,44 @@ func (rt *runtime) close() {
 	closeMCP(rt.mcp)
 }
 
-// commands returns the user's and the project's slash commands.
+// projectDir is the workspace's .kalonide folder, or "" when the folder
+// is not trusted.
+func (rt *runtime) projectDir() string {
+	if !rt.trusted {
+		return ""
+	}
+	return filepath.Join(rt.env.Root, ".kalonide")
+}
+
+// commands returns the user's and (if trusted) the project's commands.
 func (rt *runtime) commands() []extend.Item {
-	return extend.Commands(filepath.Join(rt.env.Root, ".kalonide"), config.Home())
+	return extend.Commands(rt.projectDir(), config.Home())
+}
+
+// loadSkills (re)registers the skill tool for the current trust.
+func (rt *runtime) loadSkills() {
+	rt.skills = extend.Skills(rt.projectDir(), config.Home())
+	if len(rt.skills) > 0 {
+		rt.reg.Add(tools.Skill{Skills: rt.skills})
+	} else {
+		rt.reg.Remove("skill")
+	}
+}
+
+// setTrusted changes whether the workspace's own files are used, and
+// optionally remembers the choice.
+func (rt *runtime) setTrusted(trusted, remember bool) error {
+	rt.trusted = trusted
+	rt.loadSkills()
+	if !remember {
+		return nil
+	}
+	s, err := config.Load()
+	if err != nil {
+		return err
+	}
+	s.SetTrust(rt.env.Root, trusted)
+	return config.Save(s)
 }
 
 // setSelfCheck turns the check-before-finishing loop on or off.

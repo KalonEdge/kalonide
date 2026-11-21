@@ -121,6 +121,7 @@ func runShell(o runOptions, resumeID string, resume bool) int {
 	for _, w := range rt.warnings {
 		fmt.Println(ui.Yellow("! ") + ui.Dim(w))
 	}
+	sh.askTrust()
 	if rt.sess.Title != "" && len(rt.agent.Messages) > 0 {
 		fmt.Printf("%s %s %s\n\n", ui.Dim("resumed"), ui.Bold(rt.sess.Title), ui.Dim(fmt.Sprintf("(%d messages)", len(rt.agent.Messages))))
 	}
@@ -1028,4 +1029,31 @@ func (sh *shell) cmdSandbox(string) (string, bool) {
 	fmt.Printf("%s with %s: writes only in %s (plus temp folders and build caches); network: %s.\n", ui.Green("Commands are sandboxed"), tool, strings.Join(p.Writable, ", "), net)
 	fmt.Println(ui.Dim("  Settings: sandbox (auto/on/off), sandboxNetwork, sandboxWritable.") + "\n")
 	return "", false
+}
+
+// askTrust asks, once per folder, whether to use the files in it that
+// steer the agent. A cloned or downloaded project could carry hostile ones.
+func (sh *shell) askTrust() {
+	rt := sh.rt
+	if rt.trusted || len(rt.extras) == 0 {
+		return
+	}
+	fmt.Println(ui.Yellow("? ") + "This folder has files that guide the agent: " + ui.Bold(strings.Join(rt.extras, ", ")) + ".")
+	fmt.Println(ui.Dim("  Use them only if you trust this project; they can steer what the agent does."))
+	key, _ := ui.Confirm(sh.term, "  Use them?", []ui.Choice{
+		{Key: 'a', Label: "always for this folder"}, {Key: 's', Label: "this session"}, {Key: 'n', Label: "no"},
+	})
+	var err error
+	switch key {
+	case 'a':
+		err = rt.setTrusted(true, true)
+	case 's':
+		err = rt.setTrusted(true, false)
+	default:
+		fmt.Println(ui.Dim("  Not using them. Change your mind with: kalonide trust"))
+	}
+	if err != nil {
+		fmt.Println(ui.Red("! ") + err.Error())
+	}
+	fmt.Println()
 }

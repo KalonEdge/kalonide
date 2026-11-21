@@ -96,6 +96,9 @@ func (ps *Procs) Start(dir, command string, policy *sandbox.Policy) (string, err
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "KALONIDE=1", "PAGER=cat", "GIT_PAGER=cat", "GIT_TERMINAL_PROMPT=0")
+	if policy != nil {
+		cmd.Env = sandbox.Env(cmd.Env)
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	p := &proc{id: id, command: command, cmd: cmd, started: time.Now(), changed: make(chan struct{})}
 	cmd.Stdout, cmd.Stderr = p, p

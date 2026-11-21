@@ -152,6 +152,9 @@ func cmdExec(args []string) int {
 	for _, w := range rt.warnings {
 		sink.Notice(w)
 	}
+	if !rt.trusted {
+		sink.Notice("not using this folder's " + strings.Join(rt.extras, ", ") + ": it is not trusted (kalonide trust, or --trust)")
+	}
 	if notice, err := rt.ensureModel(ctx); err != nil {
 		return sink.fail(err)
 	} else if notice != "" {

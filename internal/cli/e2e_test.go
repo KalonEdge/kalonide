@@ -420,9 +420,17 @@ func TestCustomCommandsAndSkills(t *testing.T) {
 	env, work := setup(t)
 	os.MkdirAll(filepath.Join(work, ".kalonide", "commands"), 0o755)
 	os.WriteFile(filepath.Join(work, ".kalonide", "commands", "hello.md"), []byte("Say hello to $ARGUMENTS"), 0o644)
+	// An untrusted folder's commands are not used.
 	r := kalonide(t, env, work, "exec", "/hello world")
-	if !strings.Contains(r.stdout, "echo: Say hello to world") {
-		t.Fatalf("custom command not expanded: %s %s", r.stdout, r.stderr)
+	if strings.Contains(r.stdout, "Say hello") || !strings.Contains(r.stderr, "not trusted") {
+		t.Fatalf("untrusted command used: %s %s", r.stdout, r.stderr)
+	}
+	if r := kalonide(t, env, work, "trust"); r.code != 0 {
+		t.Fatal(r.stderr)
+	}
+	r = kalonide(t, env, work, "exec", "/hello world")
+	if !strings.Contains(r.stdout, "echo: Say hello to world") || strings.Contains(r.stderr, "not trusted") {
+		t.Fatalf("custom command not expanded after trust: %s %s", r.stdout, r.stderr)
 	}
 	if r := kalonide(t, env, work, "exec", "--list-tools"); strings.Contains(r.stdout, "skill ") {
 		t.Fatal("skill tool offered without skills")

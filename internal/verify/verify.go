@@ -157,12 +157,14 @@ func runOne(ctx context.Context, root string, c Check, timeout time.Duration, wr
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	argv := []string{"/bin/sh", "-c", c.Command}
+	env := append(os.Environ(), "CI=1", "NO_COLOR=1", "FORCE_COLOR=0")
 	if wrap != nil {
 		argv = wrap(argv)
+		env = scrubAgents(env)
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1", "FORCE_COLOR=0")
+	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second
@@ -212,4 +214,19 @@ func AllPassed(results []Result) bool {
 
 func indent(s string) string {
 	return "    " + strings.ReplaceAll(s, "\n", "\n    ")
+}
+
+// scrubAgents drops SSH/GPG agent, D-Bus and Docker variables for wrapped
+// (sandboxed) runs, matching the sandbox package's Env.
+func scrubAgents(env []string) []string {
+	out := env[:0:0]
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		switch k {
+		case "SSH_AUTH_SOCK", "GPG_AGENT_INFO", "DBUS_SESSION_BUS_ADDRESS", "DOCKER_HOST", "DOCKER_CONTEXT":
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }

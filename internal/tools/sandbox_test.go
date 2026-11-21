@@ -80,3 +80,36 @@ func TestSandboxConfinesCommands(t *testing.T) {
 		t.Fatal("background command escaped the sandbox")
 	}
 }
+
+func TestSandboxBlocksEscapes(t *testing.T) {
+	if ok, _ := sandbox.Available(); !ok || runtime.GOOS != "darwin" {
+		t.Skip("needs macOS sandbox-exec")
+	}
+	env := newEnv(t)
+	policy := &sandbox.Policy{Writable: []string{env.Root}}
+	ctx := context.Background()
+	git := func(args string) string {
+		out, _ := RunCommand(ctx, env.Root, "git "+args, time.Minute, nil)
+		return out
+	}
+	git("init -q .")
+	out, _ := RunCommand(ctx, env.Root, "osascript -e 'return 1'; open -a TextEdit; echo after", time.Minute, policy)
+	if strings.Count(out, "Operation not permitted") < 2 {
+		t.Fatalf("osascript/open were not blocked: %s", out)
+	}
+	out, _ = RunCommand(ctx, env.Root, "echo 'echo pwned' > .git/hooks/pre-commit; git config core.hooksPath /tmp/x; echo hi > a.txt && git add a.txt && git -c user.email=a@b -c user.name=a commit -qm one && echo committed", time.Minute, policy)
+	if _, err := os.Stat(filepath.Join(env.Root, ".git/hooks/pre-commit")); err == nil {
+		t.Fatalf("git hook planted from the sandbox: %s", out)
+	}
+	if strings.Contains(git("config --get core.hooksPath"), "/tmp/x") {
+		t.Fatal(".git/config changed from the sandbox")
+	}
+	if !strings.Contains(out, "committed") {
+		t.Fatalf("git commit should still work in the sandbox: %s", out)
+	}
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
+	out, _ = RunCommand(ctx, env.Root, "echo sock=$SSH_AUTH_SOCK", time.Minute, policy)
+	if strings.Contains(out, "agent.sock") {
+		t.Fatalf("SSH agent socket passed into the sandbox: %s", out)
+	}
+}

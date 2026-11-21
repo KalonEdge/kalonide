@@ -61,6 +61,16 @@ Commands: `/model` (live picker), `/models`, `/provider`, `/mode`, `/new`,
   notes, never as instructions that outrank you.
 - Model and tool output is stripped of terminal control codes before it is
   shown, and approval prompts show the exact command.
+- In auto-edit, yolo and `exec`, the agent's shell commands run in a
+  sandbox (macOS `sandbox-exec`, or bubblewrap on Linux): writes only in
+  the workspace, temp folders and build caches; network only to this
+  machine (`sandboxNetwork` to allow more); no AppleScript or `open`; no
+  Docker or SSH-agent sockets; `.git/hooks` and `.git/config` read-only.
+  Package caches stay writable for builds (Go and npm verify their
+  contents). `/sandbox` shows the current state.
+- A folder's own `KALONIDE.md`, `AGENTS.md`, memories, skills and commands
+  are used only once you trust the folder (asked on first use;
+  `kalonide trust`, `--trust`).
 - `web_fetch` refuses localhost and private networks.
 - Credentials are redacted from tool output. API keys are never written to
   disk; providers name the environment variable that holds them.

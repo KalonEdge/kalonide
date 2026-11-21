@@ -185,6 +185,9 @@ func RunCommand(ctx context.Context, dir, command string, timeout time.Duration,
 		"KALONIDE=1", "PAGER=cat", "GIT_PAGER=cat", "GIT_TERMINAL_PROMPT=0",
 		"GIT_EDITOR=true", "EDITOR=true", "DEBIAN_FRONTEND=noninteractive",
 	)
+	if policy != nil {
+		cmd.Env = sandbox.Env(cmd.Env)
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out := &capBuffer{max: 200 << 10}
 	cmd.Stdout = out

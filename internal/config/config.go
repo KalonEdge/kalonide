@@ -57,6 +57,9 @@ type Settings struct {
 	Sandbox         string   `json:"sandbox,omitempty"`
 	SandboxNetwork  bool     `json:"sandboxNetwork,omitempty"`  // let sandboxed commands reach other machines
 	SandboxWritable []string `json:"sandboxWritable,omitempty"` // extra folders sandboxed commands may write
+	// TrustedFolders are projects whose notes, memories, skills and
+	// commands the agent may use.
+	TrustedFolders []string `json:"trustedFolders,omitempty"`
 }
 
 // Defaults returns settings that work with a stock Kalon install.
@@ -326,4 +329,28 @@ func importLegacy(s *Settings, path string) {
 	if _, ok := s.Providers[lc.ActiveProvider]; ok {
 		s.Provider = lc.ActiveProvider
 	}
+}
+
+// Trusts reports whether dir (or a folder containing it) is trusted.
+func (s *Settings) Trusts(dir string) bool {
+	for _, t := range s.TrustedFolders {
+		if t == dir || strings.HasPrefix(dir, strings.TrimRight(t, "/")+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// SetTrust adds or removes dir from the trusted folders.
+func (s *Settings) SetTrust(dir string, trusted bool) {
+	var keep []string
+	for _, t := range s.TrustedFolders {
+		if t != dir {
+			keep = append(keep, t)
+		}
+	}
+	if trusted {
+		keep = append(keep, dir)
+	}
+	s.TrustedFolders = keep
 }

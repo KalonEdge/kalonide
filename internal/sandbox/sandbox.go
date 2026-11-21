@@ -102,20 +102,50 @@ func sbString(s string) string {
 }
 
 func macProfile(p Policy) string {
+	dirs := writableDirs(p)
 	var b strings.Builder
-	b.WriteString("(version 1)(allow default)(deny file-write*)\n(allow file-write*")
-	for _, d := range writableDirs(p) {
+	b.WriteString("(version 1)(allow default)\n")
+	// Writes: only the allowed folders.
+	b.WriteString("(deny file-write*)\n(allow file-write*")
+	for _, d := range dirs {
 		b.WriteString(" (subpath " + sbString(d) + ")")
 	}
 	b.WriteString(")\n")
-	if !p.Network {
-		b.WriteString(`(deny network-outbound)(allow network-outbound (remote ip "localhost:*") (remote unix-socket))` + "\n")
+	// Files that run code later, outside the sandbox, when the user uses
+	// git: keep them read-only (commits still work).
+	b.WriteString("(deny file-write*")
+	for _, root := range p.Writable {
+		for _, rel := range []string{".git/hooks", ".git/config", ".git/info"} {
+			b.WriteString(" (subpath " + sbString(filepath.Join(root, rel)) + ")")
+		}
 	}
+	b.WriteString(")\n")
+	// No escaping through other apps: Apple Events (Terminal, System
+	// Events), opening apps, or the tools that do those things.
+	b.WriteString("(deny appleevent-send)(deny lsopen)\n")
+	b.WriteString(`(deny process-exec (literal "/usr/bin/osascript") (literal "/usr/bin/open") (literal "/usr/bin/automator"))` + "\n")
+	// Network: this machine only (unless allowed), and Unix sockets only
+	// inside the allowed folders (not the Docker socket or the SSH agent).
+	b.WriteString("(deny network-outbound)\n(allow network-outbound")
+	if p.Network {
+		b.WriteString(` (remote ip "*:*")`)
+	} else {
+		b.WriteString(` (remote ip "localhost:*")`)
+	}
+	for _, d := range dirs {
+		if d != "/dev" {
+			b.WriteString(" (remote unix-socket (subpath " + sbString(d) + "))")
+		}
+	}
+	b.WriteString(")\n")
 	return b.String()
 }
 
 func bwrapArgs(tool string, p Policy) []string {
-	args := []string{tool, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--die-with-parent"}
+	args := []string{tool, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
+		"--die-with-parent", "--new-session", "--unshare-ipc",
+		// Hide service sockets (Docker, D-Bus) that would hand out more power.
+		"--tmpfs", "/run", "--tmpfs", "/var/run"}
 	for _, d := range writableDirs(p) {
 		if d == "/dev" {
 			continue
@@ -124,8 +154,30 @@ func bwrapArgs(tool string, p Policy) []string {
 			args = append(args, "--bind", d, d)
 		}
 	}
+	for _, root := range p.Writable {
+		for _, rel := range []string{".git/hooks", ".git/config", ".git/info"} {
+			if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+				args = append(args, "--ro-bind", filepath.Join(root, rel), filepath.Join(root, rel))
+			}
+		}
+	}
 	if !p.Network {
 		args = append(args, "--unshare-net")
 	}
 	return args
+}
+
+// Env removes variables that point sandboxed commands at more powerful
+// services: the SSH and GPG agents, D-Bus, and a Docker daemon.
+func Env(env []string) []string {
+	out := env[:0:0]
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		switch k {
+		case "SSH_AUTH_SOCK", "GPG_AGENT_INFO", "DBUS_SESSION_BUS_ADDRESS", "DOCKER_HOST", "DOCKER_CONTEXT":
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }

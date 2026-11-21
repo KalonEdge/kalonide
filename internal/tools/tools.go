@@ -124,6 +124,20 @@ func (r *Registry) Add(t Tool) {
 	r.tools[t.Name()] = t
 }
 
+// Remove unregisters a tool.
+func (r *Registry) Remove(name string) {
+	if _, ok := r.tools[name]; !ok {
+		return
+	}
+	delete(r.tools, name)
+	for i, n := range r.order {
+		if n == name {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+}
+
 // Get returns the named tool.
 func (r *Registry) Get(name string) (Tool, bool) {
 	t, ok := r.tools[name]

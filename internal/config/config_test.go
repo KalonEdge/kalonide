@@ -68,3 +68,19 @@ func TestImportsLegacyConfig(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 }
+
+func TestTrustedFolders(t *testing.T) {
+	var s Settings
+	s.SetTrust("/w/app", true)
+	if !s.Trusts("/w/app") || !s.Trusts("/w/app/sub") || s.Trusts("/w/application") || s.Trusts("/w") {
+		t.Fatal("trust matching")
+	}
+	s.SetTrust("/w/app", true)
+	if len(s.TrustedFolders) != 1 {
+		t.Fatal("duplicate entry")
+	}
+	s.SetTrust("/w/app", false)
+	if s.Trusts("/w/app") {
+		t.Fatal("untrust failed")
+	}
+}

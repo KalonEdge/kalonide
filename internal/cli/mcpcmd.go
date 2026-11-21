@@ -323,3 +323,48 @@ func cmdRepoMap(args []string) int {
 	fmt.Println(out)
 	return exitOK
 }
+
+func cmdTrust(args []string, trusted bool) int {
+	var help, list bool
+	f := newFlags("trust")
+	f.Bool(&list, "List trusted folders", "list")
+	f.Bool(&help, "Show this help", "h", "help")
+	if err := f.Parse(args); err != nil {
+		return usageFail(err)
+	}
+	if help {
+		fmt.Print("Trusted folders may steer the agent with their own KALONIDE.md, AGENTS.md,\nmemories, skills and commands.\n\nUsage:\n  kalonide trust [dir]     trust a folder (default: current)\n  kalonide untrust [dir]\n  kalonide trust --list\n")
+		return exitOK
+	}
+	s, err := config.Load()
+	if err != nil {
+		return fail(err)
+	}
+	if list {
+		if len(s.TrustedFolders) == 0 {
+			fmt.Println("No trusted folders.")
+		}
+		for _, d := range s.TrustedFolders {
+			fmt.Println(d)
+		}
+		return exitOK
+	}
+	dir := "."
+	if len(f.args) > 0 {
+		dir = f.args[0]
+	}
+	real, err := tools.RealPath(dir)
+	if err != nil {
+		return fail(err)
+	}
+	s.SetTrust(real, trusted)
+	if err := config.Save(s); err != nil {
+		return fail(err)
+	}
+	if trusted {
+		fmt.Println(ui.Green("✔ ") + "trusted " + real)
+	} else {
+		fmt.Println(ui.Green("✔ ") + "no longer trusted: " + real)
+	}
+	return exitOK
+}

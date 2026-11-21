@@ -39,6 +39,7 @@ Commands:
   hooks       List your hooks (commands run around tool calls)
   verify      Run the project's own build, lint and test commands
   repo-map    Outline the codebase: files and their top-level declarations
+  trust       Let a folder's own notes, memories, skills and commands guide the agent
   sessions    List, show or delete saved sessions
   init        Write a KALONIDE.md guide for the current project
   version     Print the version
@@ -84,6 +85,10 @@ func Main(args []string) int {
 			return cmdVerify(args[1:])
 		case "repo-map":
 			return cmdRepoMap(args[1:])
+		case "trust":
+			return cmdTrust(args[1:], true)
+		case "untrust":
+			return cmdTrust(args[1:], false)
 		case "sessions", "session":
 			return cmdSessions(args[1:])
 		case "init":
