@@ -204,3 +204,21 @@ func TitleFrom(msgs []llm.Message) string {
 	}
 	return "untitled"
 }
+
+// AuditPath is where a session's audit log (one JSON line per tool call)
+// is kept.
+func (s *Store) AuditPath(id string) string { return filepath.Join(s.Dir, id+".audit.jsonl") }
+
+// AppendAudit adds one JSON line to a session's audit log.
+func (s *Store) AppendAudit(id string, line []byte) error {
+	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(s.AuditPath(id), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(append(line, '\n'))
+	return err
+}

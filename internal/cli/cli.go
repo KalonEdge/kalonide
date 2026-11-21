@@ -627,7 +627,7 @@ func cmdSessions(args []string) int {
 		return usageFail(err)
 	}
 	if help {
-		fmt.Print("Usage:\n  kalonide sessions [--all] [--json]\n  kalonide sessions show <id>\n  kalonide sessions rm <id>\n  kalonide resume [id]\n\n" + f.Usage())
+		fmt.Print("Usage:\n  kalonide sessions [--all] [--json]\n  kalonide sessions show <id>\n  kalonide sessions audit <id>   every tool call and what was decided\n  kalonide sessions rm <id>\n  kalonide resume [id]\n\n" + f.Usage())
 		return exitOK
 	}
 	store := newStore()
@@ -690,9 +690,51 @@ func cmdSessions(args []string) int {
 			fmt.Println()
 		}
 		return exitOK
+	case "audit":
+		if len(f.args) < 2 {
+			return usageFail(fmt.Errorf("usage: kalonide sessions audit <id>"))
+		}
+		sess, err := store.Load(f.args[1])
+		if err != nil {
+			return fail(err)
+		}
+		data, err := os.ReadFile(store.AuditPath(sess.ID))
+		if err != nil {
+			fmt.Println("No tool calls recorded for " + sess.ID + ".")
+			return exitOK
+		}
+		if asJSON {
+			fmt.Print(string(data))
+			return exitOK
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			var e struct {
+				Time     time.Time `json:"time"`
+				Tool     string    `json:"tool"`
+				Summary  string    `json:"summary"`
+				Decision string    `json:"decision"`
+				Failed   bool      `json:"failed"`
+				Ms       int64     `json:"ms"`
+			}
+			if json.Unmarshal([]byte(line), &e) != nil {
+				continue
+			}
+			mark := ui.Green("✔")
+			switch {
+			case e.Decision != "ran":
+				mark = ui.Yellow("⊘")
+			case e.Failed:
+				mark = ui.Red("✘")
+			}
+			fmt.Printf("%s %s %-14s %-20s %s\n", e.Time.Format("15:04:05"), mark, e.Tool, ui.Dim(e.Decision), ui.Sanitize(clipText(e.Summary, 80)))
+		}
+		return exitOK
 	case "rm", "delete":
 		if len(f.args) < 2 {
 			return usageFail(fmt.Errorf("usage: kalonide sessions rm <id>"))
+		}
+		if s, err := store.Load(f.args[1]); err == nil {
+			os.Remove(store.AuditPath(s.ID))
 		}
 		if err := store.Delete(f.args[1]); err != nil {
 			return fail(err)

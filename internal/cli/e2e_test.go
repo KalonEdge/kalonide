@@ -490,3 +490,32 @@ func TestVerifyCommand(t *testing.T) {
 		t.Fatalf("fixed project: %d\n%s", r.code, r.stdout)
 	}
 }
+
+func TestAuditLog(t *testing.T) {
+	env, work := setup(t)
+	kalonide(t, env, work, "exec", "MAKEFILE")                                   // refused: no --auto-edit
+	r := kalonide(t, env, work, "exec", "-o", "json", "--auto-edit", "MAKEFILE") // runs
+	var out map[string]any
+	json.Unmarshal([]byte(r.stdout), &out)
+	id, _ := out["session_id"].(string)
+	r = kalonide(t, env, work, "sessions", "audit", id)
+	if r.code != 0 || !strings.Contains(r.stdout, "write_file") || !strings.Contains(r.stdout, "ran") {
+		t.Fatalf("audit of the allowed run:\n%s %s", r.stdout, r.stderr)
+	}
+	list := kalonide(t, env, work, "sessions", "--json")
+	var sessions []map[string]any
+	json.Unmarshal([]byte(list.stdout), &sessions)
+	var deniedID string
+	for _, s := range sessions {
+		if s["ID"] != id {
+			deniedID, _ = s["ID"].(string)
+		}
+	}
+	r = kalonide(t, env, work, "sessions", "audit", deniedID, "--json")
+	if !strings.Contains(r.stdout, `"decision":"denied"`) || !strings.Contains(r.stdout, `"tool":"write_file"`) {
+		t.Fatalf("audit of the refused run:\n%s", r.stdout)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("audit files must not show up as sessions: %d", len(sessions))
+	}
+}

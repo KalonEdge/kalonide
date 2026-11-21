@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -178,6 +179,11 @@ func newRuntime(o runOptions) (*runtime, error) {
 	}
 	task.Parent = rt.agent
 	rt.modeNow = func() string { return rt.mode }
+	rt.agent.Audit = func(e agent.AuditEntry) {
+		if data, err := json.Marshal(e); err == nil {
+			_ = rt.store.AppendAudit(rt.sess.ID, data)
+		}
+	}
 	env.Sandbox = rt.sandboxPolicy
 	if ok, _ := sandbox.Available(); !ok && s.Sandbox == "on" {
 		rt.warnings = append(rt.warnings, "sandbox is on in settings, but this system has none (macOS sandbox-exec, or bubblewrap on Linux); commands run unconfined")

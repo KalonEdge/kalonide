@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/tools"
@@ -31,6 +32,30 @@ type AllowAll struct{}
 
 func (AllowAll) Allow(_ context.Context, _ tools.Tool, _ string, danger string) (bool, error) {
 	return danger == "", nil
+}
+
+// AuditEntry is one tool call in the audit log.
+type AuditEntry struct {
+	Time     time.Time `json:"time"`
+	Tool     string    `json:"tool"`
+	Kind     string    `json:"kind,omitempty"`
+	Summary  string    `json:"summary,omitempty"`
+	Decision string    `json:"decision"` // ran, denied, refused-destructive, blocked-by-hook, invalid-arguments, unknown-tool, error
+	Danger   string    `json:"danger,omitempty"`
+	Failed   bool      `json:"failed,omitempty"`
+	Ms       int64     `json:"ms,omitempty"`
+}
+
+func (a *Agent) audit(e AuditEntry) {
+	if a.Audit == nil {
+		return
+	}
+	e.Time = time.Now()
+	if len(e.Summary) > 500 {
+		e.Summary = e.Summary[:500] + "…"
+	}
+	e.Summary = tools.Redact(e.Summary)
+	a.Audit(e)
 }
 
 // SelfChecker runs the project's checks. Summary names the commands, for
@@ -103,6 +128,8 @@ type Agent struct {
 	Gate      Gate
 	Sink      Sink
 	Hooks     ToolHooks // optional
+	// Audit, if set, records every tool call and what was decided.
+	Audit func(AuditEntry)
 	// SelfCheck, if set, runs the project's checks when the model is about
 	// to finish after changing files.
 	SelfCheck SelfChecker
@@ -382,6 +409,7 @@ func (a *Agent) runTool(ctx context.Context, call llm.ToolCall, failures map[str
 		msg := fmt.Sprintf("Error: there is no tool named %q. Available tools: %s.", name, strings.Join(a.Tools.Names(), ", "))
 		a.sink().ToolStart(call.ID, name, "")
 		a.sink().ToolEnd(call.ID, name, msg, true)
+		a.audit(AuditEntry{Tool: name, Decision: "unknown-tool"})
 		return msg
 	}
 	args := json.RawMessage(strings.TrimSpace(call.Function.Arguments))
@@ -395,6 +423,7 @@ func (a *Agent) runTool(ctx context.Context, call llm.ToolCall, failures map[str
 			msg := fmt.Sprintf("Error: the arguments for %s were not valid JSON, so it did not run. Send the call again with valid JSON arguments. You sent: %s", name, tools.Truncate(string(args), 500))
 			a.sink().ToolStart(call.ID, name, "")
 			a.sink().ToolEnd(call.ID, name, msg, true)
+			a.audit(AuditEntry{Tool: name, Decision: "invalid-arguments"})
 			return msg
 		}
 	}
@@ -416,9 +445,15 @@ func (a *Agent) runTool(ctx context.Context, call llm.ToolCall, failures map[str
 		if err != nil {
 			msg := "Error: could not get permission: " + err.Error()
 			a.sink().ToolEnd(call.ID, name, msg, true)
+			a.audit(AuditEntry{Tool: name, Kind: t.Kind().String(), Summary: summary, Decision: "error"})
 			return msg
 		}
 		if !allowed {
+			decision := "denied"
+			if danger != "" {
+				decision = "refused-destructive"
+			}
+			a.audit(AuditEntry{Tool: name, Kind: t.Kind().String(), Summary: summary, Decision: decision, Danger: danger})
 			msg := "The user did not allow this action, so it did not run. Do not retry the same action. Continue another way, or explain what you need and why."
 			if danger != "" {
 				msg = fmt.Sprintf("Blocked: this command needs explicit approval (%s) and was not approved. Do not retry it. Find a safer way or ask the user to run it.", danger)
@@ -431,11 +466,14 @@ func (a *Agent) runTool(ctx context.Context, call llm.ToolCall, failures map[str
 		if why := a.Hooks.Before(ctx, name, args); why != "" {
 			msg := "Blocked by one of the user's hooks, so it did not run: " + tools.Truncate(tools.Redact(why), 2000)
 			a.sink().ToolEnd(call.ID, name, msg, true)
+			a.audit(AuditEntry{Tool: name, Kind: t.Kind().String(), Summary: summary, Decision: "blocked-by-hook"})
 			return msg
 		}
 	}
+	started := time.Now()
 	out, err := t.Run(ctx, a.Env, args)
 	failed := err != nil
+	a.audit(AuditEntry{Tool: name, Kind: t.Kind().String(), Summary: summary, Decision: "ran", Danger: danger, Failed: failed, Ms: time.Since(started).Milliseconds()})
 	if !failed && (t.Kind() == tools.KindWrite || t.Kind() == tools.KindShell) && name != "verify" {
 		a.changed = true
 	}
