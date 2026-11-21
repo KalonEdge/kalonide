@@ -355,3 +355,30 @@ func TestRememberIsGatedAndConfined(t *testing.T) {
 		t.Fatal("wrote outside the workspace")
 	}
 }
+
+func TestLineDiffAndPreview(t *testing.T) {
+	d := LineDiff([]string{"a", "b", "c"}, []string{"a", "B", "c", "d"}, 10, 10)
+	got := ""
+	for _, l := range d {
+		got += fmt.Sprintf("%c%d%s ", l.Op, l.Line, l.Text)
+	}
+	if got != " 10a -11b +11B  12c +13d " {
+		t.Fatalf("diff: %q", got)
+	}
+
+	env := newEnv(t)
+	write(t, env, "m.go", "package m\n\nfunc A() int {\n\treturn 1\n}\n")
+	args, _ := json.Marshal(map[string]any{"path": "m.go", "old_string": "\treturn 1", "new_string": "\treturn 2"})
+	p := EditFile{}.Preview(env, args)
+	if !strings.Contains(p, "-    4 │ \treturn 1") || !strings.Contains(p, "+    4 │ \treturn 2") || !strings.Contains(p, "func A()") {
+		t.Fatalf("edit preview:\n%s", p)
+	}
+	args, _ = json.Marshal(map[string]any{"path": "new.txt", "content": "x\ny\n"})
+	if p := (WriteFile{}).Preview(env, args); p != "+    1 │ x\n+    2 │ y" {
+		t.Fatalf("write preview: %q", p)
+	}
+	args, _ = json.Marshal(map[string]any{"path": "m.go", "old_string": "nope", "new_string": "x"})
+	if (EditFile{}).Preview(env, args) != "" {
+		t.Fatal("preview for a failing edit should be empty")
+	}
+}

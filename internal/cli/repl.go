@@ -29,6 +29,7 @@ type shell struct {
 	editor    *ui.Editor
 	render    *ui.Renderer
 	gate      *gate
+	status    string   // slow parts of the status line, refreshed per prompt
 	models    []string // cached for completion
 	modelInfo []llm.ModelInfo
 	modelsMu  sync.Mutex
@@ -83,6 +84,7 @@ func runShell(o runOptions, resumeID string, resume bool) int {
 	sh.editor = ui.NewEditor(term, config.HistoryPath())
 	sh.editor.Complete = sh.complete
 	sh.editor.ShiftTab = func() { sh.gate.Cycle() }
+	sh.editor.Footer = sh.footerLine
 
 	rt.agent.Gate = sh.gate
 	rt.agent.Sink = sh.render
@@ -112,6 +114,7 @@ func runShell(o runOptions, resumeID string, resume bool) int {
 
 	lastInterrupt := time.Time{}
 	for {
+		sh.beforePrompt()
 		line, err := sh.editor.ReadLine(sh.prompt)
 		switch {
 		case errors.Is(err, ui.ErrInterrupt):
@@ -171,14 +174,46 @@ func (sh *shell) banner() {
 	fmt.Printf("  %s\n\n", ui.Dim("/help commands · Shift+Tab mode · Ctrl-C stops a reply · \\ then Enter for a new line"))
 }
 
-func (sh *shell) prompt() string {
-	switch sh.gate.Mode() {
-	case config.ModeAutoEdit:
-		return ui.Yellow("auto-edit") + " " + ui.Accent("❯ ")
-	case config.ModeYolo:
-		return ui.Red("yolo") + " " + ui.Accent("❯ ")
+func (sh *shell) prompt() string { return ui.Accent("❯ ") }
+
+// beforePrompt draws the rule above the input, naming the model, and
+// works out the parts of the status line that are slow to compute.
+func (sh *shell) beforePrompt() {
+	model := sh.rt.agent.Model
+	if model == "" {
+		model = "no model"
 	}
-	return ui.Accent("❯ ")
+	label := " " + model + " · " + sh.rt.provider.Name + " "
+	width := max(ui.Width()-2, 20)
+	left := 3
+	right := max(width-left-ui.VisibleLen(label), 3)
+	fmt.Println(ui.Dim(strings.Repeat("─", left)) + ui.Dim(label) + ui.Dim(strings.Repeat("─", right)))
+
+	sh.status = ""
+	if win := sh.rt.agent.ContextWindow; win > 0 && len(sh.rt.agent.Messages) > 0 {
+		sh.status = fmt.Sprintf(" · context %d%%", sh.rt.agent.ContextTokens()*100/win)
+	}
+	home, _ := os.UserHomeDir()
+	ws := sh.rt.env.Root
+	if home != "" && strings.HasPrefix(ws, home) {
+		ws = "~" + ws[len(home):]
+	}
+	sh.status += " · " + ws
+}
+
+// footerLine is the status line under the input: mode first, so the
+// current permission level is always visible.
+func (sh *shell) footerLine() string {
+	var mode string
+	switch m := sh.gate.Mode(); m {
+	case config.ModeAutoEdit:
+		mode = ui.Yellow("● auto-edit")
+	case config.ModeYolo:
+		mode = ui.Red("● yolo")
+	default:
+		mode = ui.Green("● ask")
+	}
+	return "  " + mode + ui.Dim(sh.status+" · shift+tab mode · / commands")
 }
 
 // turn sends one prompt to the agent. Ctrl-C cancels the reply.

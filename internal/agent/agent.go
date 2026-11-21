@@ -362,6 +362,13 @@ func (a *Agent) runTool(ctx context.Context, call llm.ToolCall, failures map[str
 		danger = d.Danger(args)
 	}
 	a.sink().ToolStart(call.ID, name, summary)
+	if pv, ok := t.(tools.Previewer); ok {
+		if ps, ok := a.sink().(interface{ ToolPreview(id, name, text string) }); ok {
+			if p := pv.Preview(a.Env, args); p != "" {
+				ps.ToolPreview(call.ID, name, p)
+			}
+		}
+	}
 	if a.Gate != nil {
 		allowed, err := a.Gate.Allow(ctx, t, summary, danger)
 		if err != nil {

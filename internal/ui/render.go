@@ -23,6 +23,10 @@ type Renderer struct {
 	lineOpen bool // cursor is not at the start of a line
 	started  map[string]time.Time
 	spinner  *spinner
+
+	// Answer text streams raw; each finished line is redrawn formatted.
+	md      mdState
+	partial string // the unfinished line, as printed so far
 }
 
 // NewRenderer writes to stdout.
@@ -73,13 +77,52 @@ func (r *Renderer) Text(s string) {
 		r.inThink = false
 	}
 	r.inText = true
-	r.write(s)
+	for {
+		i := strings.IndexByte(s, '\n')
+		if i < 0 {
+			r.partial += s
+			r.write(s)
+			return
+		}
+		r.partial += s[:i]
+		r.write(s[:i])
+		r.finishLine()
+		s = s[i+1:]
+	}
+}
+
+// finishLine redraws the current answer line with markdown formatting and
+// ends it. The raw line may have wrapped, so move up over every row it took.
+func (r *Renderer) finishLine() {
+	styled := styleLine(r.partial, &r.md)
+	if styled != r.partial {
+		cols := max(Width(), 1)
+		rows := 0
+		if w := VisibleLen(r.partial); w > 0 {
+			rows = (w - 1) / cols
+		}
+		r.write("\r")
+		if rows > 0 {
+			r.write(fmt.Sprintf("\x1b[%dA", rows))
+		}
+		r.write("\x1b[J" + styled)
+	}
+	r.write("\n")
+	r.partial = ""
+}
+
+// flushPartial completes a half-finished answer line before other output.
+func (r *Renderer) flushPartial() {
+	if r.partial != "" {
+		r.finishLine()
+	}
 }
 
 func (r *Renderer) Thinking(s string) {
 	s = Sanitize(s)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.flushPartial()
 	if !r.ShowThinking {
 		return
 	}
@@ -97,6 +140,7 @@ func (r *Renderer) ToolStart(id, name, summary string) {
 	name, summary = Sanitize(name), Sanitize(summary)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.flushPartial()
 	r.stopSpinner()
 	r.newline()
 	if r.inText || r.inThink {
@@ -129,6 +173,7 @@ func (r *Renderer) Notice(s string) {
 	s = Sanitize(s)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.flushPartial()
 	r.stopSpinner()
 	r.newline()
 	r.write(Yellow("! ") + Dim(s) + "\n")
@@ -138,6 +183,7 @@ func (r *Renderer) Notice(s string) {
 func (r *Renderer) Plan(items []tools.PlanItem) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.flushPartial()
 	r.stopSpinner()
 	r.newline()
 	for _, it := range items {
@@ -157,9 +203,11 @@ func (r *Renderer) Plan(items []tools.PlanItem) {
 func (r *Renderer) End() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.flushPartial()
 	r.stopSpinner()
 	r.newline()
 	r.inText, r.inThink = false, false
+	r.md = mdState{}
 }
 
 func oneLine(s string) string {
@@ -247,4 +295,24 @@ func startSpinner(out io.Writer, label string) *spinner {
 func (s *spinner) stop() {
 	close(s.done)
 	s.wg.Wait()
+}
+
+// ToolPreview shows the diff a file change will make, before it runs.
+func (r *Renderer) ToolPreview(id, name, text string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flushPartial()
+	r.stopSpinner()
+	for _, line := range strings.Split(Sanitize(text), "\n") {
+		line = clip(line, max(Width()-6, 20))
+		switch {
+		case strings.HasPrefix(line, "-"):
+			line = Red(line)
+		case strings.HasPrefix(line, "+"):
+			line = Green(line)
+		default:
+			line = Dim(line)
+		}
+		r.write("    " + line + "\n")
+	}
 }

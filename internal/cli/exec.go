@@ -435,3 +435,7 @@ func readStdin(optional bool) string {
 		return ""
 	}
 }
+
+func (s *streamSink) ToolPreview(id, name, text string) {
+	s.emit("tool_preview", map[string]any{"id": id, "name": name, "diff": text})
+}

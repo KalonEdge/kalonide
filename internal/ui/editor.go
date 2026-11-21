@@ -22,14 +22,17 @@ type Editor struct {
 	Complete func(prefix string) []string
 	// ShiftTab is called on Shift+Tab (used to cycle permission modes).
 	ShiftTab func()
+	// Footer, if set, is a status line drawn under the input while typing.
+	Footer func() string
 
 	history  []string
 	histPath string
 
 	// render state
-	buf       []rune
-	pos       int
-	cursorRow int
+	buf        []rune
+	pos        int
+	cursorRow  int
+	showFooter bool
 }
 
 // NewEditor returns an editor whose history persists at histPath.
@@ -89,6 +92,7 @@ func (e *Editor) ReadLine(prompt func() string) (string, error) {
 	defer fmt.Print("\x1b[?2004l")
 
 	e.buf, e.pos, e.cursorRow = nil, 0, 0
+	e.showFooter = true
 	histIdx := len(e.history)
 	draft := ""
 	e.render(prompt())
@@ -280,6 +284,10 @@ func (e *Editor) render(prompt string) {
 		row += w/cols + 1
 		consumed += len(lr) + 1
 	}
+	if e.showFooter && e.Footer != nil {
+		b.WriteString("\r\n" + clip(e.Footer(), cols-1))
+		row++
+	}
 	endRow := row - 1
 	if up := endRow - curRow; up > 0 {
 		fmt.Fprintf(&b, "\x1b[%dA", up)
@@ -295,6 +303,7 @@ func (e *Editor) render(prompt string) {
 // finish moves the cursor below the input so output can follow.
 func (e *Editor) finish(prompt string) {
 	e.pos = len(e.buf)
+	e.showFooter = false // the status line is only for typing
 	e.render(prompt)
 	fmt.Print("\r\n")
 	e.cursorRow = 0

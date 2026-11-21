@@ -62,6 +62,8 @@ class FakeModel(http.server.BaseHTTPRequestHandler):
             args = json.dumps({"path": "notes.txt", "content": "hi\n"})
             send({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "t1", "type": "function",
                                                           "function": {"name": "write_file", "arguments": args}}]}}]})
+        elif "MARKDOWN" in last["content"]:
+            send({"choices": [{"delta": {"content": "## Plan\n- first **bold** step\n- uses `go test`\n"}, "finish_reason": "stop"}]})
         elif "SLOW" in last["content"]:
             for i in range(100):
                 send({"choices": [{"delta": {"content": "tick%d " % i}}]})
@@ -140,22 +142,27 @@ def main():
     sh.expect("❯")
     sh.expect("fake-coder")
     ok("banner, prompt, model auto-picked")
+    sh.expect("fake-coder · kalon")
+    sh.expect("● ask")
+    ok("rule names the model; status line shows the mode")
     sh.clear(); sh.send("/help\r"); sh.expect("Shift+Tab"); ok("/help")
     sh.clear(); sh.send("/mo"); sh.send("\t"); sh.send("\r"); sh.expect("mode ask"); ok("Tab completes /mo to /mode")
     sh.clear(); sh.send("/model\r"); sh.expect("fake-small"); sh.send("\x1b[B"); sh.send("\r")
     sh.expect("model is now fake-small"); ok("/model live picker with arrow keys")
     sh.clear(); sh.send("hello\r"); sh.expect("echo: hello | model=fake-small"); ok("streamed reply uses the picked model")
     sh.clear(); sh.send("first line\\\r"); sh.send("second\r"); sh.expect("echo: first line<NL>second"); ok("multi-line input")
-    sh.clear(); sh.send("MAKEFILE\r"); sh.expect("Allow write_file: notes.txt"); sh.send("n")
+    sh.clear(); sh.send("MARKDOWN\r"); sh.expect("• first bold step"); sh.expect("• uses go test")
+    ok("replies are formatted (headings, bullets, bold, code)")
+    sh.clear(); sh.send("MAKEFILE\r"); sh.expect("+    1 │ hi"); sh.expect("Allow write_file: notes.txt"); sh.send("n")
     sh.expect("RESULT: The user did not allow")
     assert not os.path.exists(notes), "file written after denial"
-    ok("permission prompt: no")
+    ok("permission prompt shows the diff first, then: no")
     sh.clear(); sh.send("MAKEFILE\r"); sh.expect("Allow write_file: notes.txt"); sh.send("y")
     sh.expect("RESULT: Created notes.txt")
     assert open(notes).read() == "hi\n"
     os.remove(notes)
     ok("permission prompt: yes writes the file")
-    sh.clear(); sh.send("\x1b[Z"); sh.send("x"); sh.expect("auto-edit"); sh.send("\x7f"); ok("Shift+Tab switches to auto-edit")
+    sh.clear(); sh.send("\x1b[Z"); sh.send("x"); sh.expect("● auto-edit"); sh.send("\x7f"); ok("Shift+Tab switches to auto-edit")
     sh.clear(); sh.send("MAKEFILE\r"); sh.expect("RESULT: Created notes.txt")
     assert "Allow write_file:" not in sh.screen()
     ok("auto-edit writes without asking")
