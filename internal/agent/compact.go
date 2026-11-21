@@ -162,6 +162,7 @@ func (a *Agent) Compact(ctx context.Context) error {
 		{Role: llm.RoleAssistant, Content: "Understood. I will continue from this summary."},
 	}
 	a.Messages = append(msgs, tail...)
+	a.Compactions++
 	a.sink().Notice(fmt.Sprintf("summarized earlier conversation (~%dk → ~%dk tokens)", before/1000, EstimateTokens(a.Messages)/1000))
 	return nil
 }

@@ -83,6 +83,10 @@ type Env struct {
 
 	// Plan is the current plan.
 	Plan []PlanItem
+
+	// BeforeWrite, if set, is called with a file's path just before a tool
+	// changes it, so the old content can be kept for undo.
+	BeforeWrite func(path string) error
 }
 
 // Registry is an ordered set of tools.
@@ -249,3 +253,14 @@ func isRuneStart(b byte) bool { return b&0xC0 != 0x80 }
 
 // MaxOutput is the most a single tool result may send back to the model.
 const MaxOutput = 30000
+
+// beforeWrite runs the BeforeWrite hook, if any.
+func (e *Env) beforeWrite(path string) error {
+	if e.BeforeWrite == nil {
+		return nil
+	}
+	if err := e.BeforeWrite(path); err != nil {
+		return fmt.Errorf("could not save %s for undo, so it was not changed: %w", e.Rel(path), err)
+	}
+	return nil
+}

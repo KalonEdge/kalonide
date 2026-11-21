@@ -98,6 +98,9 @@ type Agent struct {
 
 	Messages []llm.Message // conversation, without the system prompt
 	Usage    llm.Usage     // accumulated
+	// Compactions counts summaries that replaced earlier messages; message
+	// positions from before one no longer line up.
+	Compactions int
 
 	noTools map[string]bool // models that rejected tool calling
 	tried   map[string]bool // fallback models already used this run

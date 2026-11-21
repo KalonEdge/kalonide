@@ -299,6 +299,9 @@ func (WriteFile) Run(_ context.Context, env *Env, args json.RawMessage) (string,
 		perm = info.Mode().Perm()
 		existed = true
 	}
+	if err := env.beforeWrite(p); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", err
 	}
@@ -413,6 +416,9 @@ func (EditFile) Run(_ context.Context, env *Env, args json.RawMessage) (string, 
 		return "", fmt.Errorf("old_string appears %d times in %s (lines %s); add surrounding lines to make it unique, or set replace_all", count, a.Path, occurrenceLines(text, oldS))
 	}
 	firstLine := strings.Count(text[:strings.Index(text, oldS)], "\n") + 1
+	if err := env.beforeWrite(p); err != nil {
+		return "", err
+	}
 	if a.ReplaceAll {
 		text = strings.ReplaceAll(text, oldS, newS)
 	} else {

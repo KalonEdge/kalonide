@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/KalonEdge/kalonide/internal/agent"
+	"github.com/KalonEdge/kalonide/internal/checkpoint"
 	"github.com/KalonEdge/kalonide/internal/config"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/prompt"
@@ -29,6 +30,7 @@ type shell struct {
 	editor    *ui.Editor
 	render    *ui.Renderer
 	gate      *gate
+	undo      *checkpoint.Store
 	status    string   // slow parts of the status line, refreshed per prompt
 	models    []string // cached for completion
 	modelInfo []llm.ModelInfo
@@ -55,6 +57,8 @@ func init() {
 		{"clear", "", "Same as /new, and clear the screen", (*shell).cmdClear},
 		{"resume", "[id]", "Continue a saved session", (*shell).cmdResume},
 		{"sessions", "", "List saved sessions for this folder", (*shell).cmdSessions},
+		{"undo", "", "Undo the file changes of the last request", (*shell).cmdUndo},
+		{"rewind", "", "Go back to before an earlier request, files and conversation", (*shell).cmdRewind},
 		{"compact", "", "Summarize the conversation to free context", (*shell).cmdCompact},
 		{"context", "", "Show context usage", (*shell).cmdContext},
 		{"tools", "", "List tools and whether they ask first", (*shell).cmdTools},
@@ -79,7 +83,8 @@ func runShell(o runOptions, resumeID string, resume bool) int {
 	if err != nil {
 		return fail(err)
 	}
-	sh := &shell{rt: rt, term: term, render: ui.NewRenderer()}
+	sh := &shell{rt: rt, term: term, render: ui.NewRenderer(), undo: &checkpoint.Store{}}
+	rt.env.BeforeWrite = func(path string) error { return sh.undo.Record(path) }
 	sh.gate = newGate(rt.mode, true, term, sh.render)
 	sh.editor = ui.NewEditor(term, config.HistoryPath())
 	sh.editor.Complete = sh.complete
@@ -238,6 +243,7 @@ func (sh *shell) turn(input string) {
 		}
 	}()
 
+	sh.undo.Begin(input, len(rt.agent.Messages), rt.agent.Compactions)
 	_ = sh.term.Quiet()
 	start := time.Now()
 	res, err := rt.agent.Run(ctx, input)
@@ -590,6 +596,7 @@ func (sh *shell) cmdNew(string) (string, bool) {
 	}
 	sh.rt.agent.Reset()
 	sh.rt.env.Plan = nil
+	sh.undo = &checkpoint.Store{}
 	sh.rt.sess = session.New(sh.rt.env.Root, sh.rt.provider.Name, sh.rt.agent.Model)
 	fmt.Println(ui.Dim("New conversation.") + "\n")
 	return "", false
@@ -635,6 +642,7 @@ func (sh *shell) cmdResume(arg string) (string, bool) {
 	}
 	_ = rt.saveSession()
 	rt.loadSession(s)
+	sh.undo = &checkpoint.Store{}
 	fmt.Printf("%s resumed %s %s\n\n", ui.Green("✔"), ui.Bold(s.Title), ui.Dim(fmt.Sprintf("(%d messages)", len(s.Messages))))
 	return "", false
 }
@@ -798,4 +806,61 @@ func (sh *shell) cachedInfo() []llm.ModelInfo {
 	sh.modelsMu.Lock()
 	defer sh.modelsMu.Unlock()
 	return sh.modelInfo
+}
+
+func (sh *shell) cmdUndo(string) (string, bool) {
+	turn, restored, err := sh.undo.Undo()
+	sh.afterRewind(turn, restored, err)
+	return "", false
+}
+
+func (sh *shell) cmdRewind(string) (string, bool) {
+	turns := sh.undo.Turns()
+	if len(turns) == 0 {
+		fmt.Println(ui.Dim("Nothing to rewind yet in this session.") + "\n")
+		return "", false
+	}
+	items := make([]ui.PickItem, len(turns))
+	for i, t := range turns {
+		files := "no file changes"
+		if n := len(t.Files()); n > 0 {
+			files = fmt.Sprintf("%d file(s) changed", n)
+		}
+		items[len(turns)-1-i] = ui.PickItem{Label: fmt.Sprintf("%d. %s", i+1, clipText(strings.Join(strings.Fields(ui.Sanitize(t.Prompt)), " "), 60)), Detail: files}
+	}
+	i, err := ui.Pick(sh.term, "Rewind to just before", items, -1)
+	if err != nil || i < 0 {
+		return "", false
+	}
+	turn, restored, err := sh.undo.RewindTo(len(turns) - 1 - i)
+	sh.afterRewind(turn, restored, err)
+	return "", false
+}
+
+// afterRewind reports restored files and cuts the conversation back to
+// before the undone request, when that is still possible.
+func (sh *shell) afterRewind(turn *checkpoint.Turn, restored []string, err error) {
+	if turn == nil {
+		fmt.Println(ui.Yellow("! ") + err.Error() + "\n")
+		return
+	}
+	for _, p := range restored {
+		fmt.Println("  " + ui.Green("↺ ") + sh.rt.env.Rel(p))
+	}
+	for _, p := range turn.Skipped() {
+		fmt.Println("  " + ui.Yellow("! ") + sh.rt.env.Rel(p) + ui.Dim(" was too large to keep and was not restored"))
+	}
+	if err != nil {
+		fmt.Println(ui.Red("! ") + err.Error())
+	}
+	a := sh.rt.agent
+	switch {
+	case turn.Epoch != a.Compactions:
+		fmt.Println(ui.Dim("  The conversation was summarized since then, so it was left as it is."))
+	case turn.MsgIndex <= len(a.Messages):
+		a.Messages = a.Messages[:turn.MsgIndex]
+		_ = sh.rt.saveSession()
+		fmt.Println(ui.Dim("  The conversation is back to before: ") + clipText(strings.Join(strings.Fields(ui.Sanitize(turn.Prompt)), " "), 60))
+	}
+	fmt.Println(ui.Dim("  Changes made by shell commands are not tracked; use git for those.") + "\n")
 }

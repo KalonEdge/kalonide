@@ -204,6 +204,9 @@ func (Remember) Run(_ context.Context, env *Env, args json.RawMessage) (string, 
 		}
 		p = resolved
 	}
+	if err := env.beforeWrite(p); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", err
 	}

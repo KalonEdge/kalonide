@@ -160,8 +160,10 @@ def main():
     sh.clear(); sh.send("MAKEFILE\r"); sh.expect("Allow write_file: notes.txt"); sh.send("y")
     sh.expect("RESULT: Created notes.txt")
     assert open(notes).read() == "hi\n"
-    os.remove(notes)
     ok("permission prompt: yes writes the file")
+    sh.clear(); sh.send("/undo\r"); sh.expect("↺ notes.txt"); sh.expect("back to before")
+    assert not os.path.exists(notes), "/undo left the file"
+    ok("/undo removes the file the agent created")
     sh.clear(); sh.send("\x1b[Z"); sh.send("x"); sh.expect("● auto-edit"); sh.send("\x7f"); ok("Shift+Tab switches to auto-edit")
     sh.clear(); sh.send("MAKEFILE\r"); sh.expect("RESULT: Created notes.txt")
     assert "Allow write_file:" not in sh.screen()

@@ -30,7 +30,7 @@ it any time with `/model`.
 | `!cmd` | run a shell command yourself |
 
 Commands: `/model` (live picker), `/models`, `/provider`, `/mode`, `/new`,
-`/clear`, `/resume`, `/sessions`, `/compact`, `/context`, `/tools`,
+`/clear`, `/undo`, `/rewind`, `/resume`, `/sessions`, `/compact`, `/context`, `/tools`,
 `/add-dir`, `/memory`, `/init`, `/thinking`, `/doctor`, `/config`, `/exit`.
 
 **One-shot, for scripts and CI:** `kalonide exec "fix the failing test"`
