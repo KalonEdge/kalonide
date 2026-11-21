@@ -16,6 +16,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/config"
 	"github.com/KalonEdge/kalonide/internal/discover"
 	"github.com/KalonEdge/kalonide/internal/extend"
+	"github.com/KalonEdge/kalonide/internal/hooks"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/mcp"
 	"github.com/KalonEdge/kalonide/internal/prompt"
@@ -62,6 +63,7 @@ type runtime struct {
 	mode     string
 	mcp      []*mcp.Client // connected MCP servers
 	warnings []string      // problems to show the user once, e.g. an MCP server that failed
+	hooks    *hooks.Runner // nil when no hooks are configured
 }
 
 func newRuntime(o runOptions) (*runtime, error) {
@@ -102,6 +104,8 @@ func newRuntime(o runOptions) (*runtime, error) {
 	}
 
 	reg := tools.Default()
+	task := &agent.TaskTool{}
+	reg.Add(task)
 	skills := extend.Skills(filepath.Join(realRoot, ".kalonide"), config.Home())
 	if len(skills) > 0 {
 		reg.Add(tools.Skill{Skills: skills})
@@ -156,6 +160,19 @@ func newRuntime(o runOptions) (*runtime, error) {
 		Env:           env,
 		MaxTurns:      maxTurns,
 		ContextWindow: s.ContextWindow,
+	}
+	task.Parent = rt.agent
+	var valid []hooks.Hook
+	for i, h := range s.Hooks {
+		if problem := h.Valid(); problem != "" {
+			rt.warnings = append(rt.warnings, fmt.Sprintf("hook %d in settings is ignored: %s", i+1, problem))
+			continue
+		}
+		valid = append(valid, h)
+	}
+	if len(valid) > 0 {
+		rt.hooks = &hooks.Runner{Hooks: valid, Root: env.Root}
+		rt.agent.Hooks = rt.hooks
 	}
 	rt.agent.SystemPrompt = func(model string, toolsOn bool) string {
 		return prompt.Build(prompt.Options{

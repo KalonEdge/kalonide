@@ -434,3 +434,53 @@ func TestAnnouncesNextStep(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskToolRunsAHelper(t *testing.T) {
+	a, s := newAgent(t,
+		call("task", map[string]string{"description": "find main", "prompt": "Where is main defined?"}),
+		// The helper's own calls, on the same scripted model:
+		step{resp: &llm.Response{ToolCalls: []llm.ToolCall{{ID: "h1", Function: llm.FunctionCall{Name: "list_directory", Arguments: "{}"}}}},
+			check: func(t *testing.T, r llm.Request) {
+				for _, tool := range r.Tools {
+					if tool.Function.Name == "task" || tool.Function.Name == "bash" || tool.Function.Name == "write_file" {
+						t.Errorf("helper was offered %s", tool.Function.Name)
+					}
+				}
+				if !strings.Contains(r.Messages[0].Content, "helper") || r.Messages[1].Content != "Where is main defined?" {
+					t.Errorf("helper request: %+v", r.Messages)
+				}
+			}},
+		text("main is in cmd/app/main.go line 3"),
+		text("Done."),
+	)
+	task := &TaskTool{Parent: a}
+	a.Tools.Add(task)
+	var events []string
+	a.Sink = recordSink{&events}
+	res, err := a.Run(context.Background(), "where is main?")
+	if err != nil || res.Text != "Done." || len(s.steps) != 0 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if out := lastTool(a).Content; !strings.Contains(out, "main is in cmd/app/main.go line 3") || !strings.Contains(out, "helper: 2 model calls") {
+		t.Fatalf("task result: %q", out)
+	}
+	if !strings.Contains(strings.Join(events, "|"), "start:task › list_directory") {
+		t.Fatalf("helper activity not shown: %v", events)
+	}
+	// The helper's messages stay out of the main conversation.
+	for _, m := range a.Messages {
+		if m.ToolCallID == "h1" {
+			t.Fatal("helper message leaked into the main conversation")
+		}
+	}
+}
+
+type recordSink struct{ events *[]string }
+
+func (recordSink) Text(string)     {}
+func (recordSink) Thinking(string) {}
+func (r recordSink) ToolStart(id, name, summary string) {
+	*r.events = append(*r.events, "start:"+name)
+}
+func (recordSink) ToolEnd(string, string, string, bool) {}
+func (recordSink) Notice(string)                        {}

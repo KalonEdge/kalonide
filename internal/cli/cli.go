@@ -35,6 +35,7 @@ Commands:
   config      Show settings, or config set <key> <value>
   doctor      Check the setup and look for model servers on this machine
   mcp         Add, list and manage MCP servers (outside tools)
+  hooks       List your hooks (commands run around tool calls)
   sessions    List, show or delete saved sessions
   init        Write a KALONIDE.md guide for the current project
   version     Print the version
@@ -74,6 +75,8 @@ func Main(args []string) int {
 			return cmdDoctor(args[1:])
 		case "mcp":
 			return cmdMCP(args[1:])
+		case "hooks":
+			return cmdHooks(args[1:])
 		case "sessions", "session":
 			return cmdSessions(args[1:])
 		case "init":

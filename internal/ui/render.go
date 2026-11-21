@@ -158,7 +158,7 @@ func (r *Renderer) ToolEnd(id, name, result string, failed bool) {
 	r.stopSpinner()
 	el := time.Since(r.started[id])
 	delete(r.started, id)
-	line := resultLine(name, result)
+	line := resultLine(strings.TrimPrefix(name, "task › "), result)
 	if el > 2*time.Second {
 		line += fmt.Sprintf(" · %.0fs", el.Seconds())
 	}

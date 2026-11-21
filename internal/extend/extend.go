@@ -49,6 +49,10 @@ func load(projectDir, userDir, kind string, allowFolders bool) []Item {
 		if err != nil {
 			continue
 		}
+		realDir, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			continue
+		}
 		for _, e := range entries {
 			var name, path string
 			switch {
@@ -63,15 +67,20 @@ func load(projectDir, userDir, kind string, allowFolders bool) []Item {
 			if !ValidName(name) {
 				continue
 			}
-			data, err := os.ReadFile(path)
+			// A symlink must not pull in a file from outside this folder.
+			real, err := filepath.EvalSymlinks(path)
+			if err != nil || !inside(realDir, real) {
+				continue
+			}
+			data, err := os.ReadFile(real)
 			if err != nil || len(data) > 64<<10 {
 				continue
 			}
-			meta, body := frontmatter(string(data))
+			meta, body := frontmatter(clean(string(data), true))
 			if meta["name"] != "" && ValidName(strings.ToLower(meta["name"])) {
 				name = strings.ToLower(meta["name"])
 			}
-			desc := meta["description"]
+			desc := clean(meta["description"], false)
 			if desc == "" {
 				desc = firstLine(body)
 			}
@@ -140,4 +149,27 @@ func Find(items []Item, name string) (Item, bool) {
 		}
 	}
 	return Item{}, false
+}
+
+func inside(root, p string) bool {
+	r, err := filepath.Rel(root, p)
+	return err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && !filepath.IsAbs(r)
+}
+
+// clean removes terminal control characters (escape sequences, C1 codes,
+// bidirectional overrides) from text read from these files, keeping
+// newlines and tabs when multiline is set.
+func clean(s string, multiline bool) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case (r == '\n' || r == '\t') && multiline:
+			return r
+		case r == '\n' || r == '\t':
+			return ' '
+		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f,
+			r == 0x2028, r == 0x2029, r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+			return -1
+		}
+		return r
+	}, s)
 }

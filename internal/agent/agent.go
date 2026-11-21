@@ -33,6 +33,13 @@ func (AllowAll) Allow(_ context.Context, _ tools.Tool, _ string, danger string) 
 	return danger == "", nil
 }
 
+// ToolHooks runs the user's commands around tool calls. Before returns a
+// reason to block the call, or ""; After returns notes for the model.
+type ToolHooks interface {
+	Before(ctx context.Context, tool string, args json.RawMessage) string
+	After(ctx context.Context, tool string, args json.RawMessage) string
+}
+
 // Sink receives live events for display.
 type Sink interface {
 	Text(s string)
@@ -85,6 +92,7 @@ type Agent struct {
 	Env       *tools.Env
 	Gate      Gate
 	Sink      Sink
+	Hooks     ToolHooks // optional
 
 	// SystemPrompt builds the system prompt; toolsOn says whether tools
 	// will be offered.
@@ -395,12 +403,24 @@ func (a *Agent) runTool(ctx context.Context, call llm.ToolCall, failures map[str
 			return msg
 		}
 	}
+	if a.Hooks != nil {
+		if why := a.Hooks.Before(ctx, name, args); why != "" {
+			msg := "Blocked by one of the user's hooks, so it did not run: " + tools.Truncate(why, 2000)
+			a.sink().ToolEnd(call.ID, name, msg, true)
+			return msg
+		}
+	}
 	out, err := t.Run(ctx, a.Env, args)
 	failed := err != nil
 	if err != nil {
 		out = "Error: " + err.Error()
 	}
 	out = tools.Truncate(tools.Redact(out), tools.MaxOutput)
+	if a.Hooks != nil {
+		if note := a.Hooks.After(ctx, name, args); note != "" {
+			out += "\n\n" + tools.Truncate(tools.Redact(note), 8000)
+		}
+	}
 	key := name + "\x00" + string(args)
 	if failed {
 		failures[key]++

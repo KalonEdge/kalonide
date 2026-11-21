@@ -67,6 +67,7 @@ func init() {
 		{"add-dir", "<path>", "Allow writes in another folder", (*shell).cmdAddDir},
 		{"memory", "", "List saved memories", (*shell).cmdMemory},
 		{"mcp", "", "List connected MCP servers and their tools", (*shell).cmdMCP},
+		{"hooks", "", "List your hooks", (*shell).cmdHooks},
 		{"init", "", "Write a KALONIDE.md guide for this project", (*shell).cmdInit},
 		{"image", "<file>", "Attach an image to your next message (vision models)", (*shell).cmdImage},
 		{"thinking", "", "Show or hide model thinking", (*shell).cmdThinking},
@@ -276,6 +277,9 @@ func (sh *shell) turn(input string) {
 	}
 	if res != nil {
 		sh.footer(res, time.Since(start))
+		if note := rt.hooks.End(context.Background(), string(res.Stop)); note != "" {
+			fmt.Println(ui.Dim("  " + strings.ReplaceAll(ui.Sanitize(note), "\n", "\n  ")))
+		}
 	}
 	if err := rt.saveSession(); err != nil {
 		fmt.Println(ui.Red("! could not save session: ") + err.Error())
@@ -375,7 +379,7 @@ func (sh *shell) slash(line string) (string, bool) {
 	}
 	// The user's own commands, from .kalonide/commands or the home folder.
 	if cmd, ok := extend.Find(sh.rt.commands(), name); ok {
-		fmt.Println(ui.Dim("/" + cmd.Name + " (" + cmd.Scope + " command)"))
+		fmt.Println(ui.Dim("/" + ui.Sanitize(cmd.Name) + " (" + cmd.Scope + " command)"))
 		return extend.Expand(cmd, arg), false
 	}
 	// Unique prefix match: /mo → /model is ambiguous with /models, /mode.
@@ -473,7 +477,7 @@ func (sh *shell) cmdHelp(string) (string, bool) {
 		fmt.Println()
 		fmt.Println(ui.Bold("Your commands"))
 		for _, c := range cmds {
-			fmt.Printf("  %s  %s\n", ui.Accent(fmt.Sprintf("%-30s", "/"+c.Name)), ui.Dim(c.Description+" ("+c.Scope+")"))
+			fmt.Printf("  %s  %s\n", ui.Accent(fmt.Sprintf("%-30s", "/"+c.Name)), ui.Dim(ui.Sanitize(c.Description)+" ("+c.Scope+")"))
 		}
 	}
 	fmt.Println()
@@ -953,6 +957,12 @@ func (sh *shell) cmdMCP(string) (string, bool) {
 			fmt.Printf("  %s %s\n", ui.Red("● ")+ui.Bold(name), ui.Dim("not connected (see the warning at startup)"))
 		}
 	}
+	fmt.Println()
+	return "", false
+}
+
+func (sh *shell) cmdHooks(string) (string, bool) {
+	printHooks()
 	fmt.Println()
 	return "", false
 }

@@ -183,3 +183,65 @@ func sortedKeys[V any](m map[string]V) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+const hooksHelp = `Hooks run your own commands around the agent's work. Add them to
+settings.json (kalonide config path) under "hooks"; they are never read
+from a project folder.
+
+  "hooks": [
+    {"event": "after_tool", "tools": ["edit_file", "write_file"], "command": "gofmt -w \"$KALONIDE_FILE\""},
+    {"event": "before_tool", "tools": ["bash"], "command": "./scripts/allowed.sh"},
+    {"event": "turn_end", "command": "osascript -e 'display notification \"done\" with title \"Kalonide\"'"}
+  ]
+
+before_tool  runs before a tool; a non-zero exit blocks the call and its
+             output tells the model why
+after_tool   runs after a tool; its output is added to the tool's result
+turn_end     runs when a request is done; its output is shown to you
+
+Hooks run in the workspace with KALONIDE_EVENT, KALONIDE_TOOL,
+KALONIDE_ARGS (JSON), KALONIDE_FILE (when the tool has a path),
+KALONIDE_WORKSPACE and, for turn_end, KALONIDE_STOP. Default timeout 60s
+("timeout": seconds).
+`
+
+func cmdHooks(args []string) int {
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+		fmt.Print(hooksHelp)
+		return exitOK
+	}
+	printHooks()
+	return exitOK
+}
+
+func printHooks() {
+	s, err := config.Load()
+	if err != nil {
+		fmt.Println(ui.Red("! ") + err.Error())
+		return
+	}
+	if len(s.Hooks) == 0 {
+		fmt.Println("No hooks. See: kalonide hooks --help")
+		return
+	}
+	for i, h := range s.Hooks {
+		mark := ui.Green("●")
+		switch {
+		case h.Valid() != "":
+			mark = ui.Red("✘")
+		case h.Disabled:
+			mark = ui.Dim("○")
+		}
+		scope := "all tools"
+		if len(h.Tools) > 0 {
+			scope = strings.Join(h.Tools, ", ")
+		}
+		if h.Event == "turn_end" {
+			scope = "every request"
+		}
+		fmt.Printf("%s %d. %s %s  %s\n", mark, i+1, ui.Bold(h.Event), ui.Dim("("+scope+")"), h.Command)
+		if p := h.Valid(); p != "" {
+			fmt.Println("   " + ui.Red(p))
+		}
+	}
+}

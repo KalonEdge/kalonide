@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/KalonEdge/kalonide/internal/hooks"
 	"github.com/KalonEdge/kalonide/internal/mcp"
 )
 
@@ -49,6 +50,7 @@ type Settings struct {
 	ContextWindow  int                         `json:"contextWindow,omitempty"`
 	FallbackModels []string                    `json:"fallbackModels,omitempty"`
 	MCPServers     map[string]mcp.ServerConfig `json:"mcpServers,omitempty"`
+	Hooks          []hooks.Hook                `json:"hooks,omitempty"`
 }
 
 // Defaults returns settings that work with a stock Kalon install.

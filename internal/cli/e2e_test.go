@@ -433,3 +433,28 @@ func TestCustomCommandsAndSkills(t *testing.T) {
 		t.Fatalf("skill tool missing: %s", r.stdout)
 	}
 }
+
+func TestHooksAroundToolCalls(t *testing.T) {
+	env, work := setup(t)
+	home := strings.TrimPrefix(env[0], "KALONIDE_HOME=")
+	settings := `{"hooks": [
+		{"event": "after_tool", "tools": ["write_file"], "command": "echo formatted $(basename $KALONIDE_FILE)"},
+		{"event": "turn_end", "command": "echo all done"}
+	]}`
+	os.WriteFile(filepath.Join(home, "settings.json"), []byte(settings), 0o600)
+	r := kalonide(t, env, work, "exec", "-o", "stream-json", "--auto-edit", "MAKEFILE")
+	if !strings.Contains(r.stdout, "formatted notes.txt") || !strings.Contains(r.stdout, "all done") {
+		t.Fatalf("after_tool / turn_end hook output missing:\n%s\n%s", r.stdout, r.stderr)
+	}
+
+	os.Remove(filepath.Join(work, "notes.txt"))
+	settings = `{"hooks": [{"event": "before_tool", "tools": ["write_file"], "command": "echo no new files today; exit 1"}, {"event": "bogus", "command": "x"}]}`
+	os.WriteFile(filepath.Join(home, "settings.json"), []byte(settings), 0o600)
+	r = kalonide(t, env, work, "exec", "--auto-edit", "MAKEFILE")
+	if _, err := os.Stat(filepath.Join(work, "notes.txt")); err == nil {
+		t.Fatal("blocked write happened")
+	}
+	if !strings.Contains(r.stdout, "Blocked by one of the user") || !strings.Contains(r.stderr, "hook 2 in settings is ignored") {
+		t.Fatalf("before_tool block / invalid hook warning:\n%s\n%s", r.stdout, r.stderr)
+	}
+}

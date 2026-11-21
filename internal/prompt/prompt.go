@@ -99,6 +99,7 @@ const toolGuide = `
 - For a task with several steps, keep a plan with update_plan.
 - Use ask_user only when you are truly blocked by a decision only the user can make.
 - Use remember for durable facts worth keeping across sessions.
+- For a broad search or a question that needs many files read, hand it to the task tool: a helper with a fresh context returns just the answer.
 - Call tools through the tool-calling interface, not by writing JSON in your reply.
 - File paths are relative to the workspace unless absolute. Files outside the workspace are off limits unless the user grants them.
 `

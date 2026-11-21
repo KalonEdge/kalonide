@@ -174,6 +174,11 @@ func cmdExec(args []string) int {
 	start := time.Now()
 	res, runErr := rt.agent.RunMessage(ctx, msg)
 	saveErr := rt.saveSession()
+	if res != nil {
+		if note := rt.hooks.End(context.Background(), string(res.Stop)); note != "" {
+			sink.Notice(note)
+		}
+	}
 
 	code := exitOK
 	switch {
