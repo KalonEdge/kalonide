@@ -21,20 +21,22 @@ type Bash struct{}
 func (Bash) Name() string { return "bash" }
 func (Bash) Kind() Kind   { return KindShell }
 func (Bash) Description() string {
-	return "Run a shell command in the workspace and return its output and exit code. No interactive input; commands that wait for input get end-of-file. Default timeout 120s, max 600s."
+	return "Run a shell command in the workspace and return its output and exit code. No interactive input; commands that wait for input get end-of-file. Default timeout 120s, max 600s. For servers and other long-running commands set background=true, then use bash_output and bash_stop."
 }
 func (Bash) Schema() json.RawMessage {
 	return schema([]string{"command"},
 		[3]string{"command", "string", "Shell command"},
 		[3]string{"timeout", "integer", "Timeout in seconds (default 120, max 600)"},
 		[3]string{"workdir", "string", "Folder to run in (default: workspace root)"},
+		[3]string{"background", "boolean", "Start it in the background and return an id at once (default false)"},
 	)
 }
 
 type bashArgs struct {
-	Command string `json:"command"`
-	Timeout int    `json:"timeout"`
-	Workdir string `json:"workdir"`
+	Command    string `json:"command"`
+	Timeout    int    `json:"timeout"`
+	Workdir    string `json:"workdir"`
+	Background bool   `json:"background"`
 }
 
 func (Bash) Summary(args json.RawMessage) string {
@@ -43,6 +45,9 @@ func (Bash) Summary(args json.RawMessage) string {
 	s := strings.TrimSpace(a.Command)
 	if a.Workdir != "" && a.Workdir != "." {
 		s = "(in " + a.Workdir + ") " + s
+	}
+	if a.Background {
+		s += " (in the background)"
 	}
 	return s
 }
@@ -146,6 +151,18 @@ func (Bash) Run(ctx context.Context, env *Env, args json.RawMessage) (string, er
 			return "", err
 		}
 		dir = d
+	}
+	if a.Background {
+		if env.Procs == nil {
+			return "", errors.New("background commands are not available here")
+		}
+		id, err := env.Procs.Start(dir, a.Command)
+		if err != nil {
+			return "", err
+		}
+		// Give it a moment, so early output or an immediate failure shows.
+		first, _ := env.Procs.Output(ctx, id, 1500*time.Millisecond)
+		return fmt.Sprintf("Started %s in the background. Read more with bash_output, stop it with bash_stop.\n%s", id, first), nil
 	}
 	return RunCommand(ctx, dir, a.Command, timeout)
 }

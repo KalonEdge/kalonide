@@ -69,6 +69,7 @@ func init() {
 		{"memory", "", "List saved memories", (*shell).cmdMemory},
 		{"mcp", "", "List connected MCP servers and their tools", (*shell).cmdMCP},
 		{"hooks", "", "List your hooks", (*shell).cmdHooks},
+		{"ps", "", "List background commands the agent started", (*shell).cmdPS},
 		{"init", "", "Write a KALONIDE.md guide for this project", (*shell).cmdInit},
 		{"image", "<file>", "Attach an image to your next message (vision models)", (*shell).cmdImage},
 		{"selfcheck", "", "Turn on/off running the project's checks before the agent finishes", (*shell).cmdSelfCheck},
@@ -986,5 +987,18 @@ func (sh *shell) cmdSelfCheck(string) (string, bool) {
 		labels = append(labels, c.Label)
 	}
 	fmt.Println(ui.Green("✔") + " self-check is on: after changing files the agent runs " + strings.Join(labels, ", ") + " and fixes failures\n")
+	return "", false
+}
+
+func (sh *shell) cmdPS(string) (string, bool) {
+	list := sh.rt.env.Procs.List()
+	if len(list) == 0 {
+		fmt.Println(ui.Dim("No background commands.") + "\n")
+		return "", false
+	}
+	for _, l := range list {
+		fmt.Println("  " + ui.Sanitize(l))
+	}
+	fmt.Println(ui.Dim("\n  They stop when you leave Kalonide; ask the agent to stop one sooner.") + "\n")
 	return "", false
 }

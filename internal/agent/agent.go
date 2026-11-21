@@ -33,6 +33,13 @@ func (AllowAll) Allow(_ context.Context, _ tools.Tool, _ string, danger string) 
 	return danger == "", nil
 }
 
+// SelfChecker runs the project's checks. Summary names the commands, for
+// the permission prompt; Run returns whether they passed and a report.
+type SelfChecker interface {
+	Summary() string
+	Run(ctx context.Context) (bool, string)
+}
+
 // ToolHooks runs the user's commands around tool calls. Before returns a
 // reason to block the call, or ""; After returns notes for the model.
 type ToolHooks interface {
@@ -97,9 +104,8 @@ type Agent struct {
 	Sink      Sink
 	Hooks     ToolHooks // optional
 	// SelfCheck, if set, runs the project's checks when the model is about
-	// to finish after changing files. It returns whether they passed and a
-	// report for the model.
-	SelfCheck func(ctx context.Context) (bool, string)
+	// to finish after changing files.
+	SelfCheck SelfChecker
 
 	// SystemPrompt builds the system prompt; toolsOn says whether tools
 	// will be offered.
@@ -259,10 +265,8 @@ func (a *Agent) RunMessage(ctx context.Context, msg llm.Message) (*Result, error
 			if a.SelfCheck != nil && a.changed && checks < maxSelfChecks && a.toolsOn() {
 				checks++
 				a.changed = false
-				a.sink().Notice("running the project's checks before finishing")
-				if ok, report := a.SelfCheck(ctx); !ok && ctx.Err() == nil {
-					a.sink().Notice("checks failed; asking the model to fix them")
-					a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "The project's checks failed after your changes:\n\n" + tools.Truncate(report, 12000) + "\n\nFix the problems, then reply when the checks pass."})
+				if report, failed := a.runSelfCheck(ctx); failed {
+					a.Messages = append(a.Messages, llm.Message{Role: llm.RoleUser, Content: "The project's checks failed after your changes:\n\n" + report + "\n\nFix the problems, then reply when the checks pass."})
 					continue
 				}
 			}
@@ -519,6 +523,34 @@ func repairJSON(s string) (string, bool) {
 		return fixed, true
 	}
 	return "", false
+}
+
+// runSelfCheck runs the project's checks with the same permission and
+// hooks as a shell command: they run project-defined commands, which the
+// agent may itself have edited. It returns a report and whether the
+// checks failed.
+func (a *Agent) runSelfCheck(ctx context.Context) (string, bool) {
+	summary := a.SelfCheck.Summary()
+	v := tools.Verify{}
+	if a.Gate != nil {
+		if ok, err := a.Gate.Allow(ctx, v, summary, ""); err != nil || !ok {
+			a.sink().Notice("self-check skipped: running " + summary + " was not allowed")
+			return "", false
+		}
+	}
+	if a.Hooks != nil {
+		if why := a.Hooks.Before(ctx, v.Name(), nil); why != "" {
+			a.sink().Notice("self-check skipped: a hook refused it")
+			return "", false
+		}
+	}
+	a.sink().Notice("running the project's checks before finishing: " + summary)
+	ok, report := a.SelfCheck.Run(ctx)
+	if ok || ctx.Err() != nil {
+		return "", false
+	}
+	a.sink().Notice("checks failed; asking the model to fix them")
+	return tools.Truncate(tools.Redact(report), 12000), true
 }
 
 // DisableTools stops offering tools to model (it cannot call them).

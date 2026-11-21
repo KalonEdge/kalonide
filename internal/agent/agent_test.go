@@ -493,10 +493,10 @@ func TestSelfCheckMakesTheModelFixFailures(t *testing.T) {
 		text("Fixed."),
 	)
 	runs := 0
-	a.SelfCheck = func(context.Context) (bool, string) {
+	a.SelfCheck = fakeCheck{func() (bool, string) {
 		runs++
-		return runs > 1, "FAIL  go build ./...\n    x.go: wrong package"
-	}
+		return runs > 1, "FAIL  go build ./...\n    x.go: wrong package token=sk-proj-abcdefghijklmnopqrstuvwxyz"
+	}}
 	res, err := a.Run(context.Background(), "make x.go")
 	if err != nil || res.Text != "Fixed." || runs != 2 || len(s.steps) != 0 {
 		t.Fatalf("%+v %v runs=%d", res, err, runs)
@@ -505,16 +505,32 @@ func TestSelfCheckMakesTheModelFixFailures(t *testing.T) {
 	for _, m := range a.Messages {
 		if m.Role == llm.RoleUser && strings.Contains(m.Content, "wrong package") {
 			found = true
+			if strings.Contains(m.Content, "sk-proj-abc") {
+				t.Fatal("self-check report was not redacted")
+			}
 		}
 	}
 	if !found {
 		t.Fatal("the failure report never reached the model")
 	}
 
+	// Self-check runs commands, so it needs the same permission as bash.
+	c, _ := newAgent(t, call("write_file", map[string]string{"path": "y.go", "content": "package y"}), text("Done."))
+	c.Gate = denyGate{}
+	c.SelfCheck = fakeCheck{func() (bool, string) { t.Fatal("self-check ran without permission"); return true, "" }}
+	if _, err := c.Run(context.Background(), "make y.go"); err != nil {
+		t.Fatal(err)
+	}
+
 	// No file changes: no checks.
 	b, _ := newAgent(t, text("Just an answer."))
-	b.SelfCheck = func(context.Context) (bool, string) { t.Fatal("checks ran without changes"); return true, "" }
+	b.SelfCheck = fakeCheck{func() (bool, string) { t.Fatal("checks ran without changes"); return true, "" }}
 	if _, err := b.Run(context.Background(), "explain"); err != nil {
 		t.Fatal(err)
 	}
 }
+
+type fakeCheck struct{ run func() (bool, string) }
+
+func (fakeCheck) Summary() string                      { return "go build ./..." }
+func (f fakeCheck) Run(context.Context) (bool, string) { return f.run() }

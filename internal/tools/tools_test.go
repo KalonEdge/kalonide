@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -399,5 +400,127 @@ func TestMCPToolNamesAreUnique(t *testing.T) {
 	}
 	if got := MCPToolName("fs", "read", nil); got != "mcp__fs__read" {
 		t.Fatalf("plain name changed: %s", got)
+	}
+}
+
+func TestApplyPatch(t *testing.T) {
+	env := newEnv(t)
+	write(t, env, "a.go", "package a\n\nfunc One() int {\n\treturn 1\n}\n\nfunc Two() int {\n\treturn 2\n}\n")
+	write(t, env, "old.txt", "bye\n")
+	patch := `diff --git a/a.go b/a.go
+--- a/a.go
++++ b/a.go
+@@ -3,3 +3,3 @@
+ func One() int {
+-	return 1
++	return 11
+ }
+@@ -9,3 +9,4 @@
+ func Two() int {
+-	return 2
++	// two
++	return 22
+ }
+
+--- /dev/null
++++ b/sub/new.txt
+@@ -0,0 +1,2 @@
++hello
++world
+--- a/old.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-bye
+`
+	out, err := run(t, ApplyPatch{}, env, map[string]string{"patch": patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(env.Root, "a.go"))
+	if string(b) != "package a\n\nfunc One() int {\n\treturn 11\n}\n\nfunc Two() int {\n\t// two\n\treturn 22\n}\n" {
+		t.Fatalf("a.go:\n%s", b)
+	}
+	if n, _ := os.ReadFile(filepath.Join(env.Root, "sub/new.txt")); string(n) != "hello\nworld\n" {
+		t.Fatalf("new file: %q", n)
+	}
+	if _, err := os.Stat(filepath.Join(env.Root, "old.txt")); !os.IsNotExist(err) {
+		t.Fatal("old.txt not deleted")
+	}
+	if !strings.Contains(out, "patched a.go") || !strings.Contains(out, "created sub/new.txt") || !strings.Contains(out, "deleted old.txt") {
+		t.Fatalf("report: %s", out)
+	}
+
+	// All or nothing: the second hunk does not fit, so the first is not applied either.
+	write(t, env, "b.go", "x := 1\ny := 2\n")
+	bad := "--- a/b.go\n+++ b/b.go\n@@ -1 +1 @@\n-x := 1\n+x := 10\n@@ -2 +2 @@\n-z := 3\n+z := 30\n"
+	if _, err := run(t, ApplyPatch{}, env, map[string]string{"patch": bad}); err == nil || !strings.Contains(err.Error(), "hunk 2") {
+		t.Fatalf("expected hunk 2 failure, got %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(env.Root, "b.go")); string(b) != "x := 1\ny := 2\n" {
+		t.Fatal("partial patch was written")
+	}
+
+	// Drifted line numbers and indentation differences still apply.
+	write(t, env, "c.py", "# header\n# more\ndef f():\n    return 1\n")
+	drift := "--- a/c.py\n+++ b/c.py\n@@ -1,2 +1,2 @@\n def f():\n-  return 1\n+  return 2\n"
+	if _, err := run(t, ApplyPatch{}, env, map[string]string{"patch": drift}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(env.Root, "c.py")); !strings.Contains(string(b), "return 2") {
+		t.Fatalf("drifted patch: %s", b)
+	}
+	if _, err := run(t, ApplyPatch{}, env, map[string]string{"patch": "--- a/../escape\n+++ b/../escape\n@@ -1 +1 @@\n-a\n+b\n"}); err == nil {
+		t.Fatal("patch outside the workspace accepted")
+	}
+}
+
+func TestBackgroundCommands(t *testing.T) {
+	env := newEnv(t)
+	env.Procs = &Procs{}
+	defer env.Procs.StopAll()
+
+	out, err := run(t, Bash{}, env, map[string]any{"command": "for i in 1 2 3; do echo tick $i; sleep 0.4; done", "background": true})
+	if err != nil || !strings.Contains(out, "Started bg1") {
+		t.Fatalf("%q %v", out, err)
+	}
+	var all strings.Builder
+	all.WriteString(out)
+	for i := 0; i < 10 && !strings.Contains(all.String(), "exited with code 0"); i++ {
+		o, err := run(t, BashOutput{}, env, map[string]any{"id": "bg1", "wait": 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		all.WriteString(o)
+	}
+	for _, want := range []string{"tick 1", "tick 2", "tick 3", "[bg1 exited with code 0]"} {
+		if !strings.Contains(all.String(), want) {
+			t.Fatalf("missing %q in:\n%s", want, all.String())
+		}
+	}
+	if strings.Count(all.String(), "tick 1") != 1 {
+		t.Fatal("output was returned twice")
+	}
+
+	// A server-like command with a child process: stopping kills both.
+	marker := filepath.Join(env.Root, "child.pid")
+	out, _ = run(t, Bash{}, env, map[string]any{"command": "sleep 60 & echo $! > " + marker + "; echo serving; wait", "background": true})
+	if !strings.Contains(out, "serving") {
+		t.Fatalf("early output missing: %q", out)
+	}
+	pidData, _ := os.ReadFile(marker)
+	out, err = run(t, BashStop{}, env, map[string]any{"id": "bg2"})
+	if err != nil || !strings.Contains(out, "Stopped bg2") {
+		t.Fatalf("%q %v", out, err)
+	}
+	pid := strings.TrimSpace(string(pidData))
+	time.Sleep(300 * time.Millisecond)
+	if exec.Command("kill", "-0", pid).Run() == nil {
+		t.Fatalf("child process %s survived bash_stop", pid)
+	}
+	if _, err := run(t, BashOutput{}, env, map[string]any{"id": "bg9"}); err == nil || !strings.Contains(err.Error(), "bg1") {
+		t.Fatalf("unknown id: %v", err)
+	}
+	if len(env.Procs.List()) != 2 {
+		t.Fatal(env.Procs.List())
 	}
 }

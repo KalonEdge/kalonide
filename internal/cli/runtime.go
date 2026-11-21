@@ -94,6 +94,7 @@ func newRuntime(o runOptions) (*runtime, error) {
 		return nil, fmt.Errorf("workspace %s is not a folder", root)
 	}
 	env := &tools.Env{
+		Procs:            &tools.Procs{},
 		Root:             realRoot,
 		ProjectMemoryDir: prompt.ProjectMemoryDir(realRoot),
 		UserMemoryDir:    config.UserMemoryDir(),
@@ -107,6 +108,7 @@ func newRuntime(o runOptions) (*runtime, error) {
 	}
 
 	reg := tools.Default()
+	reg.Add(tools.Verify{Root: realRoot}) // replaces the default, naming real commands
 	task := &agent.TaskTool{}
 	reg.Add(task)
 	skills := extend.Skills(filepath.Join(realRoot, ".kalonide"), config.Home())
@@ -487,8 +489,12 @@ func closeMCP(clients []*mcp.Client) {
 	}
 }
 
-// close releases what the runtime started (MCP servers).
-func (rt *runtime) close() { closeMCP(rt.mcp) }
+// close releases what the runtime started: background commands and MCP
+// servers.
+func (rt *runtime) close() {
+	rt.env.Procs.StopAll()
+	closeMCP(rt.mcp)
+}
 
 // commands returns the user's and the project's slash commands.
 func (rt *runtime) commands() []extend.Item {
@@ -501,13 +507,19 @@ func (rt *runtime) setSelfCheck(on bool) {
 		rt.agent.SelfCheck = nil
 		return
 	}
-	root := rt.env.Root
-	rt.agent.SelfCheck = func(ctx context.Context) (bool, string) {
-		checks := verify.Detect(root)
-		if len(checks) == 0 {
-			return true, ""
-		}
-		results := verify.Run(ctx, root, checks, 10*time.Minute, false)
-		return verify.AllPassed(results), verify.Summary(results, len(checks)-len(results))
+	rt.agent.SelfCheck = selfChecker{root: rt.env.Root}
+}
+
+// selfChecker runs the project's checks for the agent's self-check.
+type selfChecker struct{ root string }
+
+func (c selfChecker) Summary() string { return tools.CheckSummary(c.root) }
+
+func (c selfChecker) Run(ctx context.Context) (bool, string) {
+	checks := verify.Detect(c.root)
+	if len(checks) == 0 {
+		return true, ""
 	}
+	results := verify.Run(ctx, c.root, checks, 10*time.Minute, false)
+	return verify.AllPassed(results), verify.Summary(results, len(checks)-len(results))
 }

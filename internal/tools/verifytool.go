@@ -3,13 +3,16 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/KalonEdge/kalonide/internal/verify"
 )
 
 // Verify runs the project's own build, lint and test commands.
-type Verify struct{}
+type Verify struct {
+	Root string // when set, Summary names the commands for the approval prompt
+}
 
 func (Verify) Name() string { return "verify" }
 func (Verify) Kind() Kind   { return KindShell }
@@ -20,7 +23,27 @@ func (Verify) Schema() json.RawMessage {
 	return schema(nil, [3]string{"all", "boolean", "Run every check even after a failure (default false)"})
 }
 
-func (Verify) Summary(json.RawMessage) string { return "project checks" }
+// Summary names the exact commands, so an approval prompt shows what will
+// run (the agent may have edited the Makefile or package.json).
+func (v Verify) Summary(json.RawMessage) string {
+	if v.Root == "" {
+		return "project checks"
+	}
+	return CheckSummary(v.Root)
+}
+
+// CheckSummary lists the commands verify would run in root.
+func CheckSummary(root string) string {
+	checks := verify.Detect(root)
+	if len(checks) == 0 {
+		return "project checks (none found)"
+	}
+	labels := make([]string, len(checks))
+	for i, c := range checks {
+		labels[i] = c.Command
+	}
+	return strings.Join(labels, " && ")
+}
 
 func (Verify) Run(ctx context.Context, env *Env, args json.RawMessage) (string, error) {
 	var a struct {

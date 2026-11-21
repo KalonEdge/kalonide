@@ -87,6 +87,9 @@ type Env struct {
 	// Plan is the current plan.
 	Plan []PlanItem
 
+	// Procs tracks background commands; nil means bash cannot start any.
+	Procs *Procs
+
 	// BeforeWrite, if set, is called with a file's path just before a tool
 	// changes it, so the old content can be kept for undo.
 	BeforeWrite func(path string) error
@@ -187,8 +190,8 @@ func (r *Registry) Specs() []llm.Tool {
 func Default() *Registry {
 	return NewRegistry(
 		ReadFile{}, ListDirectory{}, Glob{}, Grep{},
-		WriteFile{}, EditFile{},
-		Bash{}, Verify{},
+		WriteFile{}, EditFile{}, ApplyPatch{},
+		Bash{}, BashOutput{}, BashStop{}, Verify{},
 		WebFetch{},
 		UpdatePlan{}, AskUser{}, Remember{},
 	)
