@@ -65,6 +65,7 @@ func init() {
 		{"tools", "", "List tools and whether they ask first", (*shell).cmdTools},
 		{"add-dir", "<path>", "Allow writes in another folder", (*shell).cmdAddDir},
 		{"memory", "", "List saved memories", (*shell).cmdMemory},
+		{"mcp", "", "List connected MCP servers and their tools", (*shell).cmdMCP},
 		{"init", "", "Write a KALONIDE.md guide for this project", (*shell).cmdInit},
 		{"image", "<file>", "Attach an image to your next message (vision models)", (*shell).cmdImage},
 		{"thinking", "", "Show or hide model thinking", (*shell).cmdThinking},
@@ -85,6 +86,7 @@ func runShell(o runOptions, resumeID string, resume bool) int {
 	if err != nil {
 		return fail(err)
 	}
+	defer rt.close()
 	sh := &shell{rt: rt, term: term, render: ui.NewRenderer(), undo: &checkpoint.Store{}}
 	rt.env.BeforeWrite = func(path string) error { return sh.undo.Record(path) }
 	sh.gate = newGate(rt.mode, true, term, sh.render)
@@ -107,6 +109,9 @@ func runShell(o runOptions, resumeID string, resume bool) int {
 	}
 
 	sh.banner()
+	for _, w := range rt.warnings {
+		fmt.Println(ui.Yellow("! ") + ui.Dim(w))
+	}
 	if rt.sess.Title != "" && len(rt.agent.Messages) > 0 {
 		fmt.Printf("%s %s %s\n\n", ui.Dim("resumed"), ui.Bold(rt.sess.Title), ui.Dim(fmt.Sprintf("(%d messages)", len(rt.agent.Messages))))
 	}
@@ -901,6 +906,33 @@ func (sh *shell) cmdImage(arg string) (string, bool) {
 	for _, m := range sh.cachedInfo() {
 		if m.ID == sh.rt.agent.Model && !m.Supports("vision") {
 			fmt.Println(ui.Yellow("! ") + ui.Dim(m.ID+" is not marked as a vision model, so it may not see the image; pick one with /model"))
+		}
+	}
+	fmt.Println()
+	return "", false
+}
+
+func (sh *shell) cmdMCP(string) (string, bool) {
+	s, _ := config.Load()
+	if len(s.MCPServers) == 0 {
+		fmt.Println(ui.Dim("No MCP servers configured. Add one with: kalonide mcp add <name> -- <command> [args]") + "\n")
+		return "", false
+	}
+	byServer := map[string][]string{}
+	for _, t := range sh.rt.reg.List() {
+		if m, ok := t.(tools.MCPTool); ok {
+			byServer[m.Server] = append(byServer[m.Server], m.Tool.Name)
+		}
+	}
+	for _, name := range sortedKeys(s.MCPServers) {
+		cfg := s.MCPServers[name]
+		switch tl := byServer[name]; {
+		case cfg.Disabled:
+			fmt.Printf("  %s %s\n", ui.Dim("○ "+name), ui.Dim("disabled"))
+		case len(tl) > 0:
+			fmt.Printf("  %s %s\n", ui.Green("● ")+ui.Bold(name), ui.Dim(fmt.Sprintf("%d tools: %s", len(tl), clipText(strings.Join(tl, ", "), 80))))
+		default:
+			fmt.Printf("  %s %s\n", ui.Red("● ")+ui.Bold(name), ui.Dim("not connected (see the warning at startup)"))
 		}
 	}
 	fmt.Println()

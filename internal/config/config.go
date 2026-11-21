@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/KalonEdge/kalonide/internal/mcp"
 )
 
 // DefaultProvider is the provider used when nothing else is configured: the
@@ -40,12 +42,13 @@ type Provider struct {
 
 // Settings is the content of settings.json.
 type Settings struct {
-	Provider       string              `json:"provider"`
-	Providers      map[string]Provider `json:"providers"`
-	PermissionMode string              `json:"permissionMode,omitempty"`
-	MaxTurns       int                 `json:"maxTurns,omitempty"`
-	ContextWindow  int                 `json:"contextWindow,omitempty"`
-	FallbackModels []string            `json:"fallbackModels,omitempty"`
+	Provider       string                      `json:"provider"`
+	Providers      map[string]Provider         `json:"providers"`
+	PermissionMode string                      `json:"permissionMode,omitempty"`
+	MaxTurns       int                         `json:"maxTurns,omitempty"`
+	ContextWindow  int                         `json:"contextWindow,omitempty"`
+	FallbackModels []string                    `json:"fallbackModels,omitempty"`
+	MCPServers     map[string]mcp.ServerConfig `json:"mcpServers,omitempty"`
 }
 
 // Defaults returns settings that work with a stock Kalon install.

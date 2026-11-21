@@ -23,6 +23,7 @@ const (
 	KindWrite                // creates or changes files
 	KindShell                // runs commands
 	KindNetwork              // reaches the internet
+	KindExternal             // a tool from an MCP server: could do anything
 )
 
 func (k Kind) String() string {
@@ -39,6 +40,8 @@ func (k Kind) String() string {
 		return "shell"
 	case KindNetwork:
 		return "network"
+	case KindExternal:
+		return "external"
 	}
 	return "unknown"
 }

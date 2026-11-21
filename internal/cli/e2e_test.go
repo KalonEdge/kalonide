@@ -84,6 +84,10 @@ func fakeModel(t *testing.T) *httptest.Server {
 				c = c[:80]
 			}
 			textReply("RESULT: " + c)
+		case strings.Contains(last.Content, "MCPREAD"):
+			toolCall("mcp__fake__echo", `{"text":"zz"}`)
+		case strings.Contains(last.Content, "MCPWRITE"):
+			toolCall("mcp__fake__store", `{"key":"k"}`)
 		case strings.Contains(last.Content, "MAKEFILE"):
 			toolCall("write_file", `{"path":"notes.txt","content":"hello\n"}`)
 		default:
@@ -340,5 +344,62 @@ func TestExecSendsImages(t *testing.T) {
 	os.WriteFile(filepath.Join(work, "fake.png"), []byte("not an image"), 0o644)
 	if r := kalonide(t, env, work, "exec", "--image", "fake.png", "x"); r.code != 2 || !strings.Contains(r.stderr, "not a PNG") {
 		t.Fatalf("bad image accepted: %d %s", r.code, r.stderr)
+	}
+}
+
+const fakeMCPServer = `
+import json, sys
+def send(o):
+    sys.stdout.write(json.dumps(o) + "\n"); sys.stdout.flush()
+for line in sys.stdin:
+    m = json.loads(line)
+    if "id" not in m:
+        continue
+    if m["method"] == "initialize":
+        send({"jsonrpc": "2.0", "id": m["id"], "result": {"protocolVersion": "2025-06-18", "serverInfo": {"name": "fake"}, "capabilities": {}}})
+    elif m["method"] == "tools/list":
+        send({"jsonrpc": "2.0", "id": m["id"], "result": {"tools": [
+            {"name": "echo", "description": "Echo", "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": True}},
+            {"name": "store", "description": "Store", "inputSchema": {"type": "object"}}]}})
+    elif m["method"] == "tools/call":
+        a = m["params"]["arguments"]
+        send({"jsonrpc": "2.0", "id": m["id"], "result": {"content": [{"type": "text", "text": "mcp says " + json.dumps(a, sort_keys=True)}]}})
+`
+
+func TestMCPServerToolsReachTheModel(t *testing.T) {
+	env, work := setup(t)
+	script := filepath.Join(t.TempDir(), "server.py")
+	os.WriteFile(script, []byte(fakeMCPServer), 0o644)
+	if r := kalonide(t, env, work, "mcp", "add", "fake", "--", "python3", "-I", script); r.code != 0 {
+		t.Fatalf("add: %s", r.stderr)
+	}
+	r := kalonide(t, env, work, "mcp")
+	if r.code != 0 || !strings.Contains(r.stdout, "2 tools: echo, store") {
+		t.Fatalf("list: %d %s %s", r.code, r.stdout, r.stderr)
+	}
+	r = kalonide(t, env, work, "exec", "MCPREAD")
+	if r.code != 0 || !strings.Contains(r.stdout, `RESULT: mcp says {"text": "zz"}`) {
+		t.Fatalf("read-only MCP tool: %s %s", r.stdout, r.stderr)
+	}
+	r = kalonide(t, env, work, "exec", "MCPWRITE")
+	if !strings.Contains(r.stdout, "did not allow") || !strings.Contains(r.stderr, "refused") {
+		t.Fatalf("MCP tool with side effects ran without approval: %s %s", r.stdout, r.stderr)
+	}
+	r = kalonide(t, env, work, "exec", "--yolo", "MCPWRITE")
+	if !strings.Contains(r.stdout, `RESULT: mcp says {"key": "k"}`) {
+		t.Fatalf("yolo MCP call: %s %s", r.stdout, r.stderr)
+	}
+	if r := kalonide(t, env, work, "mcp", "disable", "fake"); r.code != 0 {
+		t.Fatal(r.stderr)
+	}
+	r = kalonide(t, env, work, "exec", "--list-tools")
+	if strings.Contains(r.stdout, "mcp__fake") {
+		t.Fatal("disabled server's tools still offered")
+	}
+	// A broken server is a warning, not a failure.
+	kalonide(t, env, work, "mcp", "add", "broken", "--", "/no/such/binary")
+	r = kalonide(t, env, work, "exec", "hello")
+	if r.code != 0 || !strings.Contains(r.stderr, "MCP server broken is unavailable") {
+		t.Fatalf("broken server: %d %s", r.code, r.stderr)
 	}
 }

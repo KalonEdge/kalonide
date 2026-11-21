@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KalonEdge/kalonide/internal/agent"
 	"github.com/KalonEdge/kalonide/internal/config"
 	"github.com/KalonEdge/kalonide/internal/discover"
 	"github.com/KalonEdge/kalonide/internal/llm"
+	"github.com/KalonEdge/kalonide/internal/mcp"
 	"github.com/KalonEdge/kalonide/internal/prompt"
 	"github.com/KalonEdge/kalonide/internal/session"
 	"github.com/KalonEdge/kalonide/internal/tools"
@@ -55,6 +58,8 @@ type runtime struct {
 	store    *session.Store
 	sess     *session.Session
 	mode     string
+	mcp      []*mcp.Client // connected MCP servers
+	warnings []string      // problems to show the user once, e.g. an MCP server that failed
 }
 
 func newRuntime(o runOptions) (*runtime, error) {
@@ -95,7 +100,13 @@ func newRuntime(o runOptions) (*runtime, error) {
 	}
 
 	reg := tools.Default()
+	var mcpClients []*mcp.Client
+	var mcpWarnings []string
+	if !o.noTools {
+		mcpClients, mcpWarnings = connectMCP(s.MCPServers, reg)
+	}
 	if err := reg.Filter(splitAll(o.enable), splitAll(o.disable)); err != nil {
+		closeMCP(mcpClients)
 		return nil, err
 	}
 	if o.noTools {
@@ -109,6 +120,8 @@ func newRuntime(o runOptions) (*runtime, error) {
 		reg:      reg,
 		store:    &session.Store{Dir: config.SessionsDir()},
 		mode:     s.PermissionMode,
+		mcp:      mcpClients,
+		warnings: mcpWarnings,
 	}
 	if v := os.Getenv("KALONIDE_PERMISSION_MODE"); v != "" {
 		rt.mode = v
@@ -381,3 +394,63 @@ func (rt *runtime) warmUp() {
 	_, _ = c.Chat(ctx, llm.Request{Model: model, MaxTokens: 1,
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}}}, nil)
 }
+
+// connectMCP connects to the enabled MCP servers at once and registers
+// their tools. A server that fails is reported, never fatal.
+func connectMCP(servers map[string]mcp.ServerConfig, reg *tools.Registry) ([]*mcp.Client, []string) {
+	type result struct {
+		name   string
+		client *mcp.Client
+		tools  []mcp.Tool
+		err    error
+	}
+	var names []string
+	for name, cfg := range servers {
+		if !cfg.Disabled {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	results := make([]result, len(names))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			r := result{name: name}
+			r.client, r.err = mcp.Connect(ctx, name, servers[name])
+			if r.err == nil {
+				if r.tools, r.err = r.client.Tools(ctx); r.err != nil {
+					r.client.Close()
+					r.client = nil
+				}
+			}
+			results[i] = r
+		}(i, name)
+	}
+	wg.Wait()
+	var clients []*mcp.Client
+	var warnings []string
+	for _, r := range results {
+		if r.err != nil {
+			warnings = append(warnings, fmt.Sprintf("MCP server %s is unavailable: %v", r.name, r.err))
+			continue
+		}
+		clients = append(clients, r.client)
+		for _, t := range r.tools {
+			reg.Add(tools.MCPTool{Client: r.client, Server: r.name, Tool: t})
+		}
+	}
+	return clients, warnings
+}
+
+func closeMCP(clients []*mcp.Client) {
+	for _, c := range clients {
+		c.Close()
+	}
+}
+
+// close releases what the runtime started (MCP servers).
+func (rt *runtime) close() { closeMCP(rt.mcp) }

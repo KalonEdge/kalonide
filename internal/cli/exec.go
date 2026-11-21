@@ -99,6 +99,7 @@ func cmdExec(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	defer rt.close()
 	if listTools {
 		for _, t := range rt.reg.List() {
 			fmt.Printf("%-15s %-8s %s\n", t.Name(), t.Kind(), t.Description())
@@ -140,6 +141,9 @@ func cmdExec(args []string) int {
 		sink = &streamSink{enc: json.NewEncoder(os.Stdout)}
 	case "json":
 		sink = &jsonSink{}
+	}
+	for _, w := range rt.warnings {
+		sink.Notice(w)
 	}
 	if notice, err := rt.ensureModel(ctx); err != nil {
 		return sink.fail(err)

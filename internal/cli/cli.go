@@ -34,6 +34,7 @@ Commands:
   providers   List, add, switch or remove provider profiles
   config      Show settings, or config set <key> <value>
   doctor      Check the setup and look for model servers on this machine
+  mcp         Add, list and manage MCP servers (outside tools)
   sessions    List, show or delete saved sessions
   init        Write a KALONIDE.md guide for the current project
   version     Print the version
@@ -71,6 +72,8 @@ func Main(args []string) int {
 			return cmdConfig(args[1:])
 		case "doctor":
 			return cmdDoctor(args[1:])
+		case "mcp":
+			return cmdMCP(args[1:])
 		case "sessions", "session":
 			return cmdSessions(args[1:])
 		case "init":
