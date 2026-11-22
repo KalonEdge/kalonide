@@ -257,10 +257,32 @@ func gitRules(roots []string) string {
 			continue // not expressible safely; the exact-path rules still apply
 		}
 		deny = append(deny, `(regex #"^`+anyCase(root)+"/"+anyCase(".git")+`(/.*)?$")`)
+		if !isASCII(root) {
+			// The same accented letter can be stored in two Unicode forms,
+			// so a pattern may miss another spelling of this folder: lock
+			// all of .git here (by its real path too) and allow nothing
+			// back. Committing from inside the sandbox fails in such
+			// folders; the user can still commit.
+			deny = append(deny, "(subpath "+sbString(filepath.Join(root, ".git"))+")")
+			continue
+		}
 		allow = append(allow, `(regex #"^`+regexp.QuoteMeta(root)+`/\.git/(`+gitWritable+`)$")`)
 	}
 	if len(deny) == 0 {
 		return ""
 	}
-	return "(deny file-write* " + strings.Join(deny, " ") + ")\n(allow file-write* " + strings.Join(allow, " ") + ")\n"
+	out := "(deny file-write* " + strings.Join(deny, " ") + ")\n"
+	if len(allow) > 0 {
+		out += "(allow file-write* " + strings.Join(allow, " ") + ")\n"
+	}
+	return out
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }

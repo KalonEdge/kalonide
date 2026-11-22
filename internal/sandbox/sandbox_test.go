@@ -39,3 +39,14 @@ func TestGitProtectedFollowsWorktreesAndRealPaths(t *testing.T) {
 		t.Fatalf("folder without git: %v %v", l, s)
 	}
 }
+
+func TestGitRulesForNonASCIIFolders(t *testing.T) {
+	plain := gitRules([]string{"/Users/a/project"})
+	if !strings.Contains(plain, "(allow file-write*") {
+		t.Fatal("an ASCII folder should get git's writable parts back")
+	}
+	accented := gitRules([]string{"/Users/a/projét"})
+	if strings.Contains(accented, "(allow file-write*") || !strings.Contains(accented, `(subpath "/Users/a/projét/.git")`) {
+		t.Fatalf("a non-ASCII folder must keep all of .git locked:\n%s", accented)
+	}
+}

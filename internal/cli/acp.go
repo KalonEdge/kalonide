@@ -15,6 +15,7 @@ import (
 	"github.com/KalonEdge/kalonide/internal/agent"
 	"github.com/KalonEdge/kalonide/internal/llm"
 	"github.com/KalonEdge/kalonide/internal/tools"
+	"github.com/KalonEdge/kalonide/internal/ui"
 	"github.com/KalonEdge/kalonide/internal/version"
 )
 
@@ -367,12 +368,19 @@ func (s *acpSink) Thinking(t string) {
 	s.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]string{"type": "text", "text": t}})
 }
 
+// acpTitle is a tool call's title for the editor: sanitized like the
+// terminal's prompt, and short.
+func acpTitle(name, summary string) string {
+	title := ui.Sanitize(name)
+	if summary != "" {
+		title += ": " + clipText(strings.Join(strings.Fields(ui.Sanitize(summary)), " "), 200)
+	}
+	return title
+}
+
 func (s *acpSink) ToolStart(id, name, summary string) {
 	s.sess.lastTool.Store(id)
-	title := name
-	if summary != "" {
-		title = name + ": " + summary
-	}
+	title := acpTitle(name, summary)
 	s.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": id, "title": title, "kind": acpKind(name, kindOf(name)), "status": "in_progress"})
 }
 
@@ -425,16 +433,19 @@ func (g *acpGate) Allow(ctx context.Context, t tools.Tool, summary, danger strin
 		{"optionId": "allow_always", "name": "Always allow " + t.Name(), "kind": "allow_always"},
 		{"optionId": "reject_once", "name": "Deny", "kind": "reject_once"},
 	}
-	title := t.Name() + ": " + summary
+	title := acpTitle(t.Name(), summary)
 	if danger != "" {
 		options = []map[string]string{options[0], options[2]}
-		title = "Destructive (" + danger + "): " + summary
+		title = "Destructive (" + danger + "): " + acpTitle(t.Name(), summary)
 	}
+	// The full command, sanitized, so the editor can show exactly what runs.
+	full := tools.Truncate(ui.Sanitize(summary), 4000)
 	callID, _ := g.sess.lastTool.Load().(string)
 	res, err := g.srv.request(ctx, "session/request_permission", map[string]any{
 		"sessionId": g.sess.id,
-		"toolCall":  map[string]any{"toolCallId": callID, "title": title, "kind": acpKind(t.Name(), k), "status": "pending"},
-		"options":   options,
+		"toolCall": map[string]any{"toolCallId": callID, "title": title, "kind": acpKind(t.Name(), k), "status": "pending",
+			"content": []map[string]any{{"type": "content", "content": map[string]string{"type": "text", "text": full}}}},
+		"options": options,
 	})
 	if err != nil || res == nil {
 		return false, nil
