@@ -136,7 +136,7 @@ overrides: `KALONIDE_PROVIDER`, `KALONIDE_BASE_URL`, `KALONIDE_MODEL`,
 make test     # unit + end-to-end tests (the e2e suite builds the binary)
 make race     # with the race detector
 make vet      # vet + gofmt check
-make shell-check  # 23 checks typed into the shell through a real terminal
+make shell-check  # 24 checks typed into the shell through a real terminal
 make release VERSION=0.1.0  # archives and checksums in dist/
 make bench   # the scoreboard: 20 real tasks on Kalon (BENCH_MODEL=gemma4:4b)
 ```

@@ -5,19 +5,19 @@ Reproduce with `make bench`. Tasks live in `bench/testdata/tasks`; each one is c
 
 ## Progress
 
-| Run | Kalonide | Model | Solved | Rate |
-|---|---|---|---|---|
-| Baseline, 21 Nov 2026 | first build (`f20b267`…`7e31cd9`) | gemma4:4b | 5/20 | 25% |
-| After the dropped-tool-call fix | `9a26ba6` (before Phases 1–6) | gemma4:4b | 25/40 (2 runs) | 62% |
-| Release candidate, 22 Nov 2026 | `e0e2f69` (Phases 0–7) | gemma4:4b | 12/20 (1 run) | 60% |
+| Run | Model | Solved | Rate |
+|---|---|---|---|
+| First build, 21 Nov 2026 | gemma4:4b | 5/20 | 25% |
+| With tool-call recovery, 21 Nov 2026 | gemma4:4b | 25/40 (2 runs) | 62% |
+| 0.1.0 release candidate, 22 Nov 2026 | gemma4:4b | 12/20 (1 run) | 60% |
 
 The jump came from recovering tool calls that Kalon drops (it leaks
 Gemma's `<channel|>` token and ends the reply), and from wider "you
 stopped mid-task" nudges. Kalon reports no token counts, so tokens read 0.
-Baseline results: `bench/results/2026-11-21-2139-*`. The release
+First-build results: `bench/results/2026-11-21-2139-*`. The release
 candidate's single pass is within run-to-run variation of the 62%; the
-features added in Phases 1–7 are about safety, extensibility and the
-interface rather than raw solve rate on a 4B model.
+work since then is about safety, extensibility and the interface rather
+than raw solve rate on a 4B model.
 
 ## Summary
 

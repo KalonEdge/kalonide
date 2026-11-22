@@ -2,9 +2,8 @@
 
 ## 0.1.0 — first release
 
-Kalonide is a coding agent for the terminal, written from scratch for
-Kalon and any OpenAI-compatible model server. It replaces the earlier
-fork of another project; no code was carried over.
+Kalonide is a coding agent for the terminal, built for Kalon and any
+OpenAI-compatible model server.
 
 **Working with Kalon**
 - Works with Kalon out of the box (`localhost:11434`), no setup step.
@@ -18,7 +17,7 @@ fork of another project; no code was carried over.
   the first build (`docs/BENCH.md`, `make bench`).
 
 **The shell**
-- Big KALONIDE wordmark with the Kalon logo; a rule naming the model and
+- KALONIDE wordmark with the Kalon logo; a rule naming the model and
   a status line with the mode, context use and sandbox state.
 - Replies stream live and are formatted (headings, lists, bold, code).
 - Every file change shows its red/green diff, before approval in ask mode.
