@@ -6,7 +6,12 @@
 # Runs vet and the tests, then builds static binaries for macOS (arm64,
 # amd64 and a universal binary when lipo is available) and Linux (amd64,
 # arm64), each packed with the README, CHANGELOG and LICENSE, plus
-# SHA256SUMS. Output goes to dist/<version>/. Nothing is uploaded.
+# SHA256SUMS. Output goes to dist/<version>/. Nothing is published.
+#
+# To sign and notarize the macOS binaries, set:
+#   DEVELOPER_ID    the signing identity, "Developer ID Application: Name (TEAM)"
+#   NOTARY_PROFILE  a notarytool keychain profile (xcrun notarytool store-credentials)
+# A bare binary cannot be stapled; macOS checks it with Apple online.
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -51,16 +56,40 @@ for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
 	os="${target%/*}"
 	arch="${target#*/}"
 	echo "== build $os/$arch"
-	bin="$OUT/bin/kalonide-$os-$arch"
-	GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "$bin" ./cmd/kalonide
-	pack "kalonide_${VERSION}_${os}_${arch}" "$bin"
+	GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "$OUT/bin/kalonide-$os-$arch" ./cmd/kalonide
 done
 
+macs=("$OUT/bin/kalonide-darwin-arm64" "$OUT/bin/kalonide-darwin-amd64")
 if command -v lipo >/dev/null; then
 	echo "== universal macOS binary"
-	lipo -create -output "$OUT/bin/kalonide-darwin-universal" "$OUT/bin/kalonide-darwin-arm64" "$OUT/bin/kalonide-darwin-amd64"
-	pack "kalonide_${VERSION}_darwin_universal" "$OUT/bin/kalonide-darwin-universal"
+	lipo -create -output "$OUT/bin/kalonide-darwin-universal" "${macs[@]}"
+	macs+=("$OUT/bin/kalonide-darwin-universal")
 fi
+
+if [[ -n "${DEVELOPER_ID:-}" ]]; then
+	echo "== sign macOS binaries"
+	for b in "${macs[@]}"; do
+		codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" "$b"
+		codesign --verify --strict "$b"
+	done
+	if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+		echo "== notarize macOS binaries (this waits for Apple)"
+		zip="$OUT/notarize.zip"
+		ditto -c -k "$OUT/bin" "$zip"
+		xcrun notarytool submit "$zip" --keychain-profile "$NOTARY_PROFILE" --wait | tee "$OUT/notarize.log"
+		grep -q "status: Accepted" "$OUT/notarize.log" || { echo "notarization was not accepted; see $OUT/notarize.log" >&2; exit 1; }
+		rm -f "$zip"
+	else
+		echo "   (signed, not notarized: set NOTARY_PROFILE to notarize)"
+	fi
+else
+	echo "== macOS binaries are NOT signed (set DEVELOPER_ID and NOTARY_PROFILE)"
+fi
+
+for b in "$OUT"/bin/kalonide-*; do
+	name="${b##*/kalonide-}"
+	pack "kalonide_${VERSION}_${name//-/_}" "$b"
+done
 
 # The binary for this machine must run and report the version.
 host="$OUT/bin/kalonide-$(go env GOOS)-$(go env GOARCH)"
@@ -75,4 +104,4 @@ echo
 echo "Kalonide $VERSION ($COMMIT) → $OUT"
 ls -lh "$OUT"/*.tar.gz | awk '{print "  " $5 "  " $9}'
 echo
-echo "Not done here: signing and notarizing the macOS binaries, and uploading."
+echo "Not done here: publishing."
