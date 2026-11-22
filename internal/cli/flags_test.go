@@ -1,6 +1,13 @@
 package cli
 
-import "testing"
+import (
+	"context"
+	"io"
+	"strings"
+	"testing"
+
+	"github.com/KalonEdge/kalonide/internal/tools"
+)
 
 func TestFlagsMixWithArguments(t *testing.T) {
 	var model, out string
@@ -39,5 +46,14 @@ func TestFlagsMixWithArguments(t *testing.T) {
 	}
 	if err := f.Parse([]string{"--model"}); err == nil {
 		t.Fatal("missing value accepted")
+	}
+}
+
+func TestTooLongToReviewIsRefused(t *testing.T) {
+	g := &acpGate{srv: newACPServer(io.Discard), sess: &acpSession{id: "s"}}
+	huge := strings.Repeat("echo x; ", 3000) // ~24 KB
+	ok, err := g.Allow(context.Background(), tools.Bash{}, huge, "")
+	if ok || err != nil {
+		t.Fatalf("an unreviewably long command was allowed: %v %v", ok, err)
 	}
 }

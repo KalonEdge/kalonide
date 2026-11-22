@@ -62,6 +62,11 @@ class FakeModel(http.server.BaseHTTPRequestHandler):
             args = json.dumps({"path": "notes.txt", "content": "hi\n"})
             send({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "t1", "type": "function",
                                                           "function": {"name": "write_file", "arguments": args}}]}}]})
+        elif "LONGCMD" in last["content"]:
+            cmd = "echo start; " + "true; " * 120 + "echo hidden-middle-marker; " + "true; " * 120 + "echo end"
+            args = json.dumps({"command": cmd})
+            send({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "t2", "type": "function",
+                                                          "function": {"name": "bash", "arguments": args}}]}}]})
         elif "MARKDOWN" in last["content"]:
             send({"choices": [{"delta": {"content": "## Plan\n- first **bold** step\n- uses `go test`\n"}, "finish_reason": "stop"}]})
         elif "SLOW" in last["content"]:
@@ -161,6 +166,9 @@ def main():
     sh.expect("RESULT: Created notes.txt")
     assert open(notes).read() == "hi\n"
     ok("permission prompt: yes writes the file")
+    sh.clear(); sh.send("LONGCMD\r"); sh.expect("Allow bash"); sh.expect("hidden-middle-marker"); sh.expect("echo end"); sh.send("n")
+    sh.expect("did not allow")
+    ok("approval shows a long command in full")
     sh.clear(); sh.send("/undo\r"); sh.expect("↺ notes.txt"); sh.expect("back to before")
     assert not os.path.exists(notes), "/undo left the file"
     ok("/undo removes the file the agent created")

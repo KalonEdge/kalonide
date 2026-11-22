@@ -98,9 +98,13 @@ func (g *gate) ask(t tools.Tool, summary, danger string, offerAlways bool) (bool
 		g.render.End()
 	}
 	// Show exactly what will run, sanitized so it cannot disguise itself.
+	// Show exactly what will run, in full: never approve hidden text.
 	shown := ui.Sanitize(summary)
-	if r := []rune(shown); len(r) > 400 {
-		shown = string(r[:400]) + "…"
+	if len(shown) > maxReviewable {
+		if g.render != nil {
+			g.render.Notice(fmt.Sprintf("refused %s: the command is %d KB, too long to review", t.Name(), len(shown)>>10))
+		}
+		return false, nil
 	}
 	q := fmt.Sprintf("  %s %s: %s\n ", ui.Yellow("Allow"), ui.Bold(t.Name()), shown)
 	if danger != "" {
@@ -129,3 +133,7 @@ func (g *gate) ask(t tools.Tool, summary, danger string, offerAlways bool) (bool
 	}
 	return false, nil
 }
+
+// maxReviewable is the longest command a person is asked to approve;
+// anything longer is refused rather than shown in part.
+const maxReviewable = 16 << 10

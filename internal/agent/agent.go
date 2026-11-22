@@ -456,6 +456,9 @@ func (a *Agent) runTool(ctx context.Context, call llm.ToolCall, failures map[str
 			}
 			a.audit(AuditEntry{Tool: name, Kind: t.Kind().String(), Summary: summary, Decision: decision, Danger: danger})
 			msg := "The user did not allow this action, so it did not run. Do not retry the same action. Continue another way, or explain what you need and why."
+			if len(summary) > 16<<10 {
+				msg = "Not run: the action is too long for the user to review. Split it into smaller steps."
+			}
 			if danger != "" {
 				msg = fmt.Sprintf("Blocked: this command needs explicit approval (%s) and was not approved. Do not retry it. Find a safer way or ask the user to run it.", danger)
 			}

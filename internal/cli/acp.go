@@ -438,8 +438,12 @@ func (g *acpGate) Allow(ctx context.Context, t tools.Tool, summary, danger strin
 		options = []map[string]string{options[0], options[2]}
 		title = "Destructive (" + danger + "): " + acpTitle(t.Name(), summary)
 	}
-	// The full command, sanitized, so the editor can show exactly what runs.
-	full := tools.Truncate(ui.Sanitize(summary), 4000)
+	// The full command, sanitized, so the editor shows exactly what runs;
+	// too long to review means refused, never shown in part.
+	full := ui.Sanitize(summary)
+	if len(full) > maxReviewable {
+		return false, nil
+	}
 	callID, _ := g.sess.lastTool.Load().(string)
 	res, err := g.srv.request(ctx, "session/request_permission", map[string]any{
 		"sessionId": g.sess.id,
