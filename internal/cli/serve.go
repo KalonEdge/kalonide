@@ -21,8 +21,7 @@ const serveHelp = `Serve Kalonide's tools to other apps over MCP (stdio).
 Usage:
   kalonide serve --mcp [-C dir] [--allow-unsafe-tools]
 
-Add it to another MCP client as a command, e.g. in a Claude Desktop or
-editor config:  {"command": "kalonide", "args": ["serve", "--mcp", "-C", "/path/to/project"]}
+Add it to another app's MCP settings as a command, e.g.:  {"command": "kalonide", "args": ["serve", "--mcp", "-C", "/path/to/project"]}
 
 By default only read-only tools are offered (read_file, list_directory,
 glob, grep, repo_map). --allow-unsafe-tools adds file edits and shell
