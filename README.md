@@ -20,6 +20,12 @@ With the installer (checks the download's SHA-256, never uses sudo):
 curl -fsSL https://raw.githubusercontent.com/KalonEdge/kalonide/main/install.sh | sh
 ```
 
+With npm (or try it first with `npx kalonide`):
+
+```bash
+npm install -g kalonide
+```
+
 Or download an archive from the
 [releases page](https://github.com/KalonEdge/kalonide/releases), or build
 from source with Go 1.25+ (`make install`). The macOS binaries are signed

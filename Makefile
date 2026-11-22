@@ -2,7 +2,7 @@ VERSION ?= $(shell date +%Y.%m.%d)-dev
 LDFLAGS := -s -w -X github.com/KalonEdge/kalonide/internal/version.Version=$(VERSION)
 PREFIX  ?= /usr/local
 
-.PHONY: build test race vet install clean bench bench-validate shell-check release
+.PHONY: build test race vet install clean bench bench-validate shell-check release npm
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o kalonide ./cmd/kalonide
@@ -34,6 +34,10 @@ shell-check: build
 release:
 	@test -n "$(VERSION)" || (echo "usage: make release VERSION=0.1.0"; exit 2)
 	scripts/release.sh "$(VERSION)"
+
+npm:
+	@test -n "$(VERSION)" || (echo "usage: make npm VERSION=0.1.0"; exit 2)
+	scripts/npm-pack.sh "$(VERSION)"
 
 clean:
 	go clean
