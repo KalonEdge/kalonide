@@ -147,6 +147,9 @@ redaction) · `internal/cli` (commands, shell, permissions) · `internal/ui`
 (terminal, editor, picker, renderer) · `internal/session`,
 `internal/config`, `internal/prompt`.
 
-The feature roadmap is [docs/FEATURE_INDEX.md](docs/FEATURE_INDEX.md).
 Kalonide has one dependency outside the Go standard library:
 `golang.org/x/sys`, for terminal raw mode.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

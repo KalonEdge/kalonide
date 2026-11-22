@@ -28,6 +28,7 @@ cat <<EOF
 class Kalonide < Formula
   desc "Coding agent for the terminal, for Kalon and OpenAI-compatible model servers"
   homepage "https://github.com/KalonEdge/kalonide"
+  license "MIT"
   version "$VERSION"
 
   on_macos do
