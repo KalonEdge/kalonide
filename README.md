@@ -8,18 +8,22 @@ OpenAI, or your own.
 
 ## Install
 
-From a release archive: unpack it and put `kalonide` on your PATH.
+With Homebrew (macOS or Linux):
 
 ```bash
-tar -xzf kalonide_0.1.0_darwin_universal.tar.gz
-sudo mv kalonide_0.1.0_darwin_universal/kalonide /usr/local/bin/
+brew install kalonedge/tap/kalonide
 ```
 
-From source (Go 1.25 or newer):
+With the installer (checks the download's SHA-256, never uses sudo):
 
 ```bash
-make install        # builds ./kalonide and links it into /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/KalonEdge/kalonide/main/install.sh | sh
 ```
+
+Or download an archive from the
+[releases page](https://github.com/KalonEdge/kalonide/releases), or build
+from source with Go 1.25+ (`make install`). The macOS binaries are signed
+and notarized by Apple.
 
 Then, in any project folder:
 
