@@ -164,9 +164,8 @@ func parsePatch(text string) ([]filePatch, error) {
 			if i < len(lines)-1 && !sectionStart(lines[i+1]) {
 				h.lines = append(h.lines, patchLine{op: ' ', text: ""})
 			}
-		case strings.HasPrefix(l, `\ No newline`):
-			// ignored
 		}
+		// Other lines, such as "\ No newline at end of file", are ignored.
 	}
 	flushHunk()
 	if len(files) == 0 {

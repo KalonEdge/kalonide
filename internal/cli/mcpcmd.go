@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -88,7 +89,7 @@ func cmdMCP(args []string) int {
 		cfg := mcp.ServerConfig{URL: url, AutoApprove: splitAll(approve), TrustReadOnlyHints: trustRO}
 		if url == "" {
 			if len(rest) < 2 {
-				return usageFail(fmt.Errorf("give the command after --, e.g. kalonide mcp add files -- npx -y @modelcontextprotocol/server-filesystem ."))
+				return usageFail(errors.New("give the command after --, e.g. kalonide mcp add files -- npx -y @modelcontextprotocol/server-filesystem ~/notes"))
 			}
 			cfg.Command, cfg.Args = rest[1], rest[2:]
 		}

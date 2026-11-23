@@ -537,9 +537,8 @@ func readStream(r io.Reader, emit func(Delta)) (*Response, error) {
 				data.WriteByte('\n')
 			}
 			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
-		case strings.HasPrefix(line, ":"):
-			// comment / keep-alive
 		}
+		// Other lines, such as ": keep-alive" comments, carry no data.
 	}
 	if err := sc.Err(); err != nil {
 		return a.finish(), err

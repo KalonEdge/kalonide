@@ -51,7 +51,7 @@ func TestSymlinksAndControlCharacters(t *testing.T) {
 	write(t, secret, "TOKEN=abc")
 	os.MkdirAll(filepath.Join(project, "commands"), 0o755)
 	os.Symlink(secret, filepath.Join(project, "commands", "leak.md"))
-	write(t, filepath.Join(project, "commands", "ok.md"), "---\ndescription: fine\x1b[2J\x1b[31m red‮\n---\nbody\twith tab\x07")
+	write(t, filepath.Join(project, "commands", "ok.md"), "---\ndescription: fine\x1b[2J\x1b[31m red\u202e\n---\nbody\twith tab\x07")
 	cmds := Commands(project, "")
 	if _, ok := Find(cmds, "leak"); ok {
 		t.Fatal("symlink to a file outside the folder was loaded")
