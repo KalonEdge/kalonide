@@ -110,16 +110,16 @@ kalonide
 
 Or try it without installing: \`npx kalonide\`.
 
-Start the Kalon app with its local API on (port 11434) and that's it: no
-setup step. Kalonide picks the best tool-capable model Kalon offers; change
-it any time with \`/model\`. Other servers (Ollama, LM Studio, OpenRouter,
-OpenAI) are set up with \`kalonide providers add\`.
+With the Kalon app open, there is nothing to configure: Kalonide connects
+automatically and picks the best model available for coding. To use
+another server, such as Ollama, LM Studio, OpenRouter or OpenAI, run
+\`kalonide providers add\`.
 
-Runs on macOS (Apple silicon and Intel) and Linux (arm64 and x86-64). The
-macOS binaries are signed and notarized by Apple. Also available with
-Homebrew (\`brew install kalonedge/tap/kalonide\`).
+Kalonide runs on macOS (Apple silicon and Intel) and Linux (arm64 and
+x86-64), and the macOS builds are signed and notarized by Apple. It's also
+available with Homebrew: \`brew install kalonedge/tap/kalonide\`.
 
-Documentation, safety model and changelog: [github.com/KalonEdge/kalonide]($REPO).
+For the full documentation, see [github.com/KalonEdge/kalonide]($REPO).
 
 ## License
 
